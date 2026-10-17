@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
 import HomePage from './pages/HomePage'
+import LibraryPage from './pages/LibraryPage'
 import RevisionPage from './pages/RevisionPage'
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/revise" element={<RevisionPage />} />
+        <Route path="/library" element={<LibraryPage />} />
       </Routes>
     </>
   )
