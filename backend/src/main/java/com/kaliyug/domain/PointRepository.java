@@ -15,6 +15,13 @@ public interface PointRepository extends JpaRepository<Point, Long> {
     @Modifying
     void deleteByMapItemId(Long mapItemId);
 
+    /** Points that count towards progress: in visible map items of non-filler chapters. */
+    @Query("""
+            select p from Point p
+            where p.mapItem.hidden = false
+              and p.mapItem.chapter.kind <> com.kaliyug.domain.ChapterKind.FILLER""")
+    List<Point> findCounted();
+
     /** Points ready for revision: due, in a learned and visible map item, outside filler chapters. */
     @Query("""
             select p from Point p
