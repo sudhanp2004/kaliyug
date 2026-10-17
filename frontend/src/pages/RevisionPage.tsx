@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getNext, submitAnswer, type GradeResult, type RevisionItem } from '../api'
+import DesignProblem from '../components/DesignProblem'
 import FeedbackCard from '../components/FeedbackCard'
 import QuestionCard from '../components/QuestionCard'
 
@@ -51,7 +52,7 @@ export default function RevisionPage() {
   }
 
   return (
-    <main className="page">
+    <main className={item?.type === 'PROBLEM' ? 'page page-wide' : 'page'}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h1 style={{ margin: 0, fontSize: '1.3rem' }}>Revision</h1>
         <div className="row">
@@ -81,13 +82,7 @@ export default function RevisionPage() {
       )}
 
       {item?.type === 'PROBLEM' && (
-        <section className="card">
-          <h2>{item.problem.title}</h2>
-          <p className="muted">Design problems arrive in the next update.</p>
-          <button className="button-primary" onClick={() => next()}>
-            Skip for now
-          </button>
-        </section>
+        <DesignProblem key={item.problem.id} problemId={item.problem.id} onDone={() => next()} />
       )}
 
       {item?.type === 'DONE' && (
