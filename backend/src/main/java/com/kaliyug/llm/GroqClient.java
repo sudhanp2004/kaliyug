@@ -34,9 +34,9 @@ public class GroqClient implements LlmClient {
     private final Duration backoffBase;
 
     @Autowired
-    public GroqClient(RestClient.Builder builder, KeyPool keys, ObjectMapper mapper,
+    public GroqClient(KeyPool keys, ObjectMapper mapper,
             @Value("${app.groq.base-url}") String baseUrl, @Value("${app.groq.model}") String model) {
-        this(builder, keys, mapper, baseUrl, model, Duration.ofSeconds(2));
+        this(RestClient.builder(), keys, mapper, baseUrl, model, Duration.ofSeconds(2));
     }
 
     GroqClient(RestClient.Builder builder, KeyPool keys, ObjectMapper mapper, String baseUrl, String model, Duration backoffBase) {
