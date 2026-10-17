@@ -53,12 +53,13 @@ public class LibraryService {
     private final Map<String, String> hashCache = new ConcurrentHashMap<>();
 
     public LibraryService(ResourceRepository resources, MapItemRepository mapItems, IngestionService ingestion,
-            @Value("${app.books-dir}") Path booksDir, @Value("${app.data-dir}") Path dataDir, Clock clock) {
+            @Value("${app.books-dir}") String booksDir, @Value("${app.data-dir}") String dataDir, Clock clock) {
         this.resources = resources;
         this.mapItems = mapItems;
         this.ingestion = ingestion;
-        this.booksDir = booksDir;
-        this.storeDir = dataDir.resolve("books");
+        // Plain strings: Spring's Path conversion rejects "../x" inside a servlet container.
+        this.booksDir = Path.of(booksDir);
+        this.storeDir = Path.of(dataDir).resolve("books");
         this.clock = clock;
     }
 

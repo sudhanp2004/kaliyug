@@ -30,8 +30,9 @@ public class AppConfig {
     }
 
     @Bean
-    KeyPool keyPool(@Value("${app.env-file}") Path envFile, Clock clock) {
-        return new KeyPool(groqKeys(DotEnv.parse(envFile), envFile), clock);
+    KeyPool keyPool(@Value("${app.env-file}") String envFile, Clock clock) {
+        Path path = Path.of(envFile);
+        return new KeyPool(groqKeys(DotEnv.parse(path), path), clock);
     }
 
     static List<String> groqKeys(Map<String, String> env, Path envFile) {
