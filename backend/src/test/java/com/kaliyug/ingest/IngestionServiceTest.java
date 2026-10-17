@@ -71,6 +71,7 @@ class IngestionServiceTest {
         Db.wipe(jdbc);
         llm.reset();
         ingestion.setRetryDelay(java.time.Duration.ofMillis(1));
+        ingestion.setMaxInputChars(IngestionService.DEFAULT_MAX_INPUT_CHARS);
         bookId = resources.save(new Resource("Fixture Book", fixture.toString(), "sha", Instant.now())).getId();
     }
 
@@ -229,5 +230,65 @@ class IngestionServiceTest {
             var pages = problems.findAll().get(0).getPoints().stream().map(Point::getFirstPage).collect(Collectors.toSet());
             assertEquals(Set.of(4, 6), pages);
         });
+    }
+
+    @Test
+    void pageWindowsCoverTheRangeInFixedSteps() {
+        assertEquals(List.of(new int[] {4, 7}, new int[] {8, 11}, new int[] {12, 13}).stream().map(java.util.Arrays::toString).toList(),
+                IngestionService.pageWindows(4, 13, 4).stream().map(java.util.Arrays::toString).toList());
+        assertEquals(List.of("[2, 3]"), IngestionService.pageWindows(2, 3, 4).stream().map(java.util.Arrays::toString).toList());
+    }
+
+    @Test
+    void longSectionIsExtractedInPageChunksWithinBudget() {
+        ingestion.setMaxInputChars(150);
+        llm.reply(CLASSIFY).reply(SPLIT_CH1).reply(SPLIT_CH2)
+                .reply(onePoint(2)).reply(onePoint(3))
+                .reply(onePoint(4)).reply(onePoint(5))
+                .reply(onePoint(6))
+                .replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        assertEquals(ResourceStatus.READY, resources.findById(bookId).orElseThrow().getStatus());
+        assertEquals(5, points.count(), "one point per page-chunk call");
+        var extractCalls = llm.calls.stream().filter(c -> c[0].equals(prompts.get("extract-points"))).toList();
+        assertEquals(5, extractCalls.size());
+        assertTrue(extractCalls.stream().allMatch(c -> c[1].length() <= 150 + 200), "each chunk stays near the budget");
+    }
+
+    @Test
+    void longChapterIsCompactedForSplittingAndProblemUsesOpeningPages() {
+        ingestion.setMaxInputChars(150);
+        llm.reply(CLASSIFY).reply(SPLIT_CH1).reply(SPLIT_CH2)
+                .reply(onePoint(2)).reply(onePoint(3))
+                .reply(onePoint(4)).reply(onePoint(5))
+                .reply(onePoint(6))
+                .replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        String splitCh2 = llm.calls.get(2)[1];
+        assertTrue(splitCh2.contains("=== PAGE 4 ===") && splitCh2.contains("=== PAGE 6 ==="), "every page marker kept");
+        assertTrue(splitCh2.length() < 150 + 300, "compacted: " + splitCh2.length());
+        String problem = llm.calls.get(llm.calls.size() - 1)[1];
+        assertTrue(problem.contains("=== PAGE 4 ==="));
+        assertFalse(problem.contains("=== PAGE 6 ==="), "only the opening pages fit the budget");
+    }
+
+    @Test
+    void invalidSplitOfLongChapterFallsBackToFourPageSections() {
+        String bad = """
+                {"sections":[{"title":"x","startPage":4,"endPage":4}]}""";
+        llm.reply(CLASSIFY).reply(SPLIT_CH1).reply(bad).reply(bad)
+                .reply(onePoint(2)).reply(onePoint(4))
+                .replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        var ch2 = chapters.findByResourceIdOrderByOrderIndex(bookId).get(2);
+        List<MapItem> items = mapItems.findByChapterIdOrderByOrderIndex(ch2.getId());
+        assertEquals(1, items.size());
+        assertEquals("Chapter 2: Design X (pp. 4–6)", items.get(0).getTitle());
     }
 }

@@ -61,6 +61,10 @@ public class IngestionService {
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
     private static final int MAX_RETRIES = 5;
     private static final int CLASSIFY_PREVIEW_CHARS = 800;
+    /** Keeps each request well under Groq's 8,000 tokens-per-minute limit per key (about 4 characters per token). */
+    static final int DEFAULT_MAX_INPUT_CHARS = 16_000;
+    private static final int FALLBACK_SECTION_PAGES = 4;
+    private static final int MIN_PAGE_CHARS = 80;
 
     private final ResourceRepository resources;
     private final PageTextRepository pages;
@@ -75,6 +79,7 @@ public class IngestionService {
     private final TransactionTemplate tx;
     private final ExecutorService executor;
     private Duration retryDelay = Duration.ofSeconds(60);
+    private int maxInputChars = DEFAULT_MAX_INPUT_CHARS;
 
     public IngestionService(ResourceRepository resources, PageTextRepository pages, ChapterRepository chapters,
             MapItemRepository mapItems, PointRepository points, QuestionRepository questions,
@@ -96,6 +101,10 @@ public class IngestionService {
 
     void setRetryDelay(Duration retryDelay) {
         this.retryDelay = retryDelay;
+    }
+
+    void setMaxInputChars(int maxInputChars) {
+        this.maxInputChars = maxInputChars;
     }
 
     public void start(Long resourceId) {
@@ -214,7 +223,7 @@ public class IngestionService {
 
     // Step 4
     private void splitSections(Long resourceId, Chapter chapter) {
-        String text = markedText(resourceId, chapter.getStartPage(), chapter.getEndPage());
+        String text = compact(markedPages(resourceId, chapter.getStartPage(), chapter.getEndPage()));
         String user = "Chapter: " + chapter.getTitle() + " (pages " + chapter.getStartPage() + "-" + chapter.getEndPage() + ")\n\n" + text;
         List<Section> sections = nullSafe(ai.ask(prompts.get("split-sections"), user, Sections.class).sections());
         if (!Grounding.validSections(sections, chapter.getStartPage(), chapter.getEndPage())) {
@@ -225,7 +234,9 @@ public class IngestionService {
             sections = nullSafe(ai.ask(prompts.get("split-sections"), retry, Sections.class).sections());
         }
         if (!Grounding.validSections(sections, chapter.getStartPage(), chapter.getEndPage())) {
-            sections = List.of(new Section(chapter.getTitle(), chapter.getStartPage(), chapter.getEndPage()));
+            sections = pageWindows(chapter.getStartPage(), chapter.getEndPage(), FALLBACK_SECTION_PAGES).stream()
+                    .map(w -> new Section(chapter.getTitle() + " (" + pagesLabel(w[0], w[1]) + ")", w[0], w[1]))
+                    .toList();
         }
         List<Section> chosen = sections;
         tx.executeWithoutResult(s -> {
@@ -243,9 +254,11 @@ public class IngestionService {
     // Step 5
     private void extractPoints(Long resourceId, MapItem item) {
         String plain = pageText(resourceId, item.getStartPage(), item.getEndPage());
-        String user = "Section: " + item.getTitle() + " (pages " + item.getStartPage() + "-" + item.getEndPage() + ")\n\n"
-                + markedText(resourceId, item.getStartPage(), item.getEndPage());
-        List<ExtractedPoint> extracted = nullSafe(ai.ask(prompts.get("extract-points"), user, ExtractedPoints.class).points());
+        String header = "Section: " + item.getTitle() + " (pages " + item.getStartPage() + "-" + item.getEndPage() + ")\n\n";
+        List<ExtractedPoint> extracted = new ArrayList<>();
+        for (String chunk : chunks(markedPages(resourceId, item.getStartPage(), item.getEndPage()))) {
+            extracted.addAll(nullSafe(ai.ask(prompts.get("extract-points"), header + chunk, ExtractedPoints.class).points()));
+        }
         int[] kept = {0};
         tx.executeWithoutResult(s -> {
             points.deleteByMapItemId(item.getId());
@@ -292,7 +305,9 @@ public class IngestionService {
         for (Point p : chapterPoints) {
             user.append(p.getId()).append(" | ").append(p.getText()).append(" | ").append(pagesLabel(p)).append('\n');
         }
-        user.append("\nChapter text:\n").append(markedText(resourceId, chapter.getStartPage(), chapter.getEndPage()));
+        List<String> opening = chunks(markedPages(resourceId, chapter.getStartPage(), chapter.getEndPage()),
+                Math.max(maxInputChars - user.length(), maxInputChars / 4));
+        user.append("\nChapter text (opening pages):\n").append(opening.isEmpty() ? "" : opening.get(0));
         ProblemSpec spec = ai.ask(prompts.get("generate-problem"), user.toString(), ProblemSpec.class);
 
         Set<Long> used = new HashSet<>();
@@ -330,14 +345,64 @@ public class IngestionService {
                 .collect(Collectors.joining("\n"));
     }
 
-    private String markedText(Long resourceId, int from, int to) {
+    private List<String> markedPages(Long resourceId, int from, int to) {
         return pages.findByResourceIdAndPageNumberBetweenOrderByPageNumber(resourceId, from, to).stream()
                 .map(p -> "=== PAGE " + p.getPageNumber() + " ===\n" + p.getText())
+                .toList();
+    }
+
+    private List<String> chunks(List<String> markedPages) {
+        return chunks(markedPages, maxInputChars);
+    }
+
+    /** Packs whole pages into chunks of at most {@code budget} characters; a page longer than the budget is cut. */
+    static List<String> chunks(List<String> markedPages, int budget) {
+        List<String> chunks = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String page : markedPages) {
+            String fitted = page.length() > budget ? page.substring(0, budget) : page;
+            if (current.length() > 0 && current.length() + 1 + fitted.length() > budget) {
+                chunks.add(current.toString());
+                current.setLength(0);
+            }
+            if (current.length() > 0) {
+                current.append('\n');
+            }
+            current.append(fitted);
+        }
+        if (current.length() > 0) {
+            chunks.add(current.toString());
+        }
+        return chunks;
+    }
+
+    /** The whole chapter when it fits; otherwise the start of every page, so headings and page markers survive. */
+    private String compact(List<String> markedPages) {
+        String full = String.join("\n", markedPages);
+        if (full.length() <= maxInputChars || markedPages.isEmpty()) {
+            return full;
+        }
+        int perPage = Math.max(MIN_PAGE_CHARS, maxInputChars / markedPages.size());
+        return markedPages.stream()
+                .map(p -> p.length() > perPage ? p.substring(0, perPage) + " …" : p)
                 .collect(Collectors.joining("\n"));
     }
 
+    /** Consecutive page ranges of {@code size} pages covering start..end. */
+    static List<int[]> pageWindows(int start, int end, int size) {
+        List<int[]> windows = new ArrayList<>();
+        for (int from = start; from <= end; from += size) {
+            windows.add(new int[] {from, Math.min(end, from + size - 1)});
+        }
+        return windows;
+    }
+
+    static String pagesLabel(int first, int last) {
+        return first == last ? "p. " + first : "pp. " + first + "–" + last;
+    }
+
     static String pagesLabel(Point p) {
-        return p.getFirstPage() == p.getLastPage() ? "p. " + p.getFirstPage() : "pp. " + p.getFirstPage() + "-" + p.getLastPage();
+        return pagesLabel(p.getFirstPage(), p.getLastPage());
     }
 
     private void withRetries(Runnable step) {
