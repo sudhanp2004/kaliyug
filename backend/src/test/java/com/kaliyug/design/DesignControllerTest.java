@@ -98,6 +98,19 @@ class DesignControllerTest {
     }
 
     @Test
+    void requirementsDropLeakedPointIds() throws Exception {
+        Problem leaky = new Problem(fx.chapter(fx.book("Other"), 9, "CHAPTER 9", ChapterKind.DESIGN), "Design X",
+                "[\"Low latency (142)\",\"Keys are unique (point 221).\",\"Spread load (points 3, 4)\",\"10,000 IDs (per second)\"]", "{}");
+        leaky = problems.save(leaky);
+
+        mvc.perform(get("/api/problems/{id}", leaky.getId()))
+                .andExpect(jsonPath("$.requirements[0]").value("Low latency"))
+                .andExpect(jsonPath("$.requirements[1]").value("Keys are unique."))
+                .andExpect(jsonPath("$.requirements[2]").value("Spread load"))
+                .andExpect(jsonPath("$.requirements[3]").value("10,000 IDs (per second)"));
+    }
+
+    @Test
     void emptyCanvasIsRejected() throws Exception {
         submit("{\"nodes\":[],\"edges\":[],\"notes\":\"\"}")
                 .andExpect(status().isBadRequest())

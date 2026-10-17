@@ -4,7 +4,7 @@ Use only the chapter text and points you are given. Never use outside knowledge.
 
 Produce:
 - title: the system to design, e.g. "Design a URL shortener".
-- requirements: the requirements and constraints exactly as the book states them (scale, read/write ratio, features, limits).
+- requirements: the requirements and constraints exactly as the book states them (scale, read/write ratio, features, limits), as plain sentences for the student. Do not mention point ids in them.
 - components: the main building blocks of the book's final design, each with a short role and the ids of the points it relates to.
 - decisions: the key design decisions the book makes and why, each with the ids of the points it relates to.
 

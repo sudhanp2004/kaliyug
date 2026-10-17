@@ -9,9 +9,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
+import com.kaliyug.design.Requirements;
 import com.kaliyug.domain.Attempt;
 import com.kaliyug.domain.AttemptRepository;
 import com.kaliyug.domain.Chapter;
@@ -96,8 +96,7 @@ public class RevisionService {
     }
 
     private RevisionItemDto problemItem(Problem problem) {
-        List<String> requirements = mapper.readValue(problem.getRequirementsJson(), new TypeReference<List<String>>() {
-        });
+        List<String> requirements = Requirements.read(mapper, problem.getRequirementsJson());
         return new RevisionItemDto("PROBLEM", null,
                 new ProblemView(problem.getId(), problem.getTitle(), requirements, problem.getChapter().getTitle()));
     }

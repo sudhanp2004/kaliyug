@@ -15,7 +15,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 import com.kaliyug.domain.Attempt;
@@ -140,8 +139,7 @@ public class DesignService {
     }
 
     private List<String> requirements(Problem p) {
-        return mapper.readValue(p.getRequirementsJson(), new TypeReference<List<String>>() {
-        });
+        return Requirements.read(mapper, p.getRequirementsJson());
     }
 
     private static Set<Long> keep(List<Long> ids, Set<Long> allowed) {
