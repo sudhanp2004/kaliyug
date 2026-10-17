@@ -96,7 +96,8 @@ public class RevisionService {
     }
 
     private RevisionItemDto problemItem(Problem problem) {
-        List<String> requirements = Requirements.read(mapper, problem.getRequirementsJson());
+        List<String> requirements = Requirements.read(mapper, problem.getRequirementsJson(),
+                points.findIdsByChapterId(problem.getChapter().getId()));
         return new RevisionItemDto("PROBLEM", null,
                 new ProblemView(problem.getId(), problem.getTitle(), requirements, problem.getChapter().getTitle()));
     }

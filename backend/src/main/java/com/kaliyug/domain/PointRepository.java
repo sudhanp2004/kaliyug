@@ -2,6 +2,7 @@ package com.kaliyug.domain;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -14,6 +15,9 @@ public interface PointRepository extends JpaRepository<Point, Long> {
 
     @Modifying
     void deleteByMapItemId(Long mapItemId);
+
+    @Query("select p.id from Point p where p.mapItem.chapter.id = :chapterId")
+    Set<Long> findIdsByChapterId(@Param("chapterId") Long chapterId);
 
     /** Points that count towards progress: in visible map items of non-filler chapters. */
     @Query("""

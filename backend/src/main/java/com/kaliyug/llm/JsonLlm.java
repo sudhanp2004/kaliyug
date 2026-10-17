@@ -1,6 +1,9 @@
 package com.kaliyug.llm;
 
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.cfg.EnumFeature;
 import tools.jackson.databind.ObjectMapper;
 
 /** Asks the AI for JSON and maps it to a record, retrying once when the reply doesn't fit. */
@@ -11,7 +14,14 @@ public class JsonLlm {
 
     public JsonLlm(LlmClient llm, ObjectMapper mapper) {
         this.llm = llm;
-        this.mapper = mapper;
+        // Forgiving about single fields, so one odd item (an unknown enum, a missing number) doesn't sink a whole reply;
+        // grounding checks downstream drop items that end up unusable.
+        this.mapper = mapper.rebuild()
+                .enable(EnumFeature.READ_UNKNOWN_ENUM_VALUES_AS_NULL)
+                .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS)
+                .disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .build();
     }
 
     public <T> T ask(String system, String user, Class<T> type) {
@@ -24,7 +34,7 @@ public class JsonLlm {
             try {
                 return mapper.readValue(llm.completeJson(system, retry), type);
             } catch (JacksonException second) {
-                throw new LlmUnavailableException("AI reply was not valid JSON twice: " + second.getOriginalMessage(), second);
+                throw new LlmBadReplyException("AI reply was not valid JSON twice: " + second.getOriginalMessage(), second);
             }
         }
     }

@@ -1,8 +1,10 @@
 package com.kaliyug.llm;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
@@ -26,25 +29,44 @@ public class GroqClient implements LlmClient {
     private static final Logger log = LoggerFactory.getLogger(GroqClient.class);
     private static final int MAX_RETRIES = 3;
     private static final Duration DEFAULT_COOLDOWN = Duration.ofSeconds(60);
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    /** A lost connection (e.g. laptop lid closed mid-request) surfaces as a timeout instead of hanging forever. */
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(120);
+    /** How long a call waits for a key when all of them are rate-limited, so grading can't spin forever. */
+    private static final Duration MAX_KEY_WAIT = Duration.ofSeconds(30);
 
     private final RestClient http;
     private final KeyPool keys;
     private final ObjectMapper mapper;
     private final String model;
     private final Duration backoffBase;
+    private final Duration maxKeyWait;
 
     @Autowired
     public GroqClient(KeyPool keys, ObjectMapper mapper,
             @Value("${app.groq.base-url}") String baseUrl, @Value("${app.groq.model}") String model) {
-        this(RestClient.builder(), keys, mapper, baseUrl, model, Duration.ofSeconds(2));
+        this(RestClient.builder(), keys, mapper, baseUrl, model, Duration.ofSeconds(2), READ_TIMEOUT, MAX_KEY_WAIT);
     }
 
     GroqClient(RestClient.Builder builder, KeyPool keys, ObjectMapper mapper, String baseUrl, String model, Duration backoffBase) {
+        this(builder, keys, mapper, baseUrl, model, backoffBase, null, MAX_KEY_WAIT);
+    }
+
+    /** A null readTimeout keeps the builder's own request factory (tests bind a mock server to it). */
+    GroqClient(RestClient.Builder builder, KeyPool keys, ObjectMapper mapper, String baseUrl, String model,
+            Duration backoffBase, Duration readTimeout, Duration maxKeyWait) {
+        if (readTimeout != null) {
+            JdkClientHttpRequestFactory requests = new JdkClientHttpRequestFactory(
+                    HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build());
+            requests.setReadTimeout(readTimeout);
+            builder.requestFactory(requests);
+        }
         this.http = builder.baseUrl(baseUrl).build();
         this.keys = keys;
         this.mapper = mapper;
         this.model = model;
         this.backoffBase = backoffBase;
+        this.maxKeyWait = maxKeyWait;
     }
 
     @Override
@@ -123,7 +145,9 @@ public class GroqClient implements LlmClient {
 
     private String acquireKey() {
         try {
-            return keys.acquire();
+            return keys.acquire(maxKeyWait);
+        } catch (TimeoutException e) {
+            throw new LlmUnavailableException("All API keys are rate-limited right now");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new LlmUnavailableException("Interrupted while waiting for an API key", e);

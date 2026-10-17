@@ -38,7 +38,7 @@ public class Problem {
 
     public Problem(Chapter chapter, String title, String requirementsJson, String referenceJson) {
         this.chapter = chapter;
-        this.title = title;
+        this.title = Text.clip(title, Text.TITLE);
         this.requirementsJson = requirementsJson;
         this.referenceJson = referenceJson;
     }

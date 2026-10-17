@@ -152,20 +152,30 @@ public class QueueService {
         for (Point p : points.findByMapItemId(itemId)) {
             scheduler.onLearned(p);
         }
-        Chapter chapter = item.getChapter();
-        boolean chapterDone = mapItems.findByChapterIdOrderByOrderIndex(chapter.getId()).stream()
-                .filter(i -> !i.isHidden())
-                .allMatch(MapItem::isLearned);
-        if (chapterDone) {
-            problems.findByChapterId(chapter.getId())
-                    .filter(p -> p.getDueAt() == null)
-                    .ifPresent(p -> p.setDueAt(now.plus(Duration.ofDays(1))));
-        }
+        scheduleProblemIfChapterDone(item.getChapter().getId());
     }
 
     @Transactional
     public void setHidden(Long itemId, boolean hidden) {
-        find(itemId).setHidden(hidden);
+        MapItem item = find(itemId);
+        item.setHidden(hidden);
+        if (hidden) {
+            scheduleProblemIfChapterDone(item.getChapter().getId());
+        }
+    }
+
+    /** A chapter's design problem first comes due a day after every visible item of the chapter is learned. */
+    @Transactional
+    public void scheduleProblemIfChapterDone(Long chapterId) {
+        List<MapItem> visible = mapItems.findByChapterIdOrderByOrderIndex(chapterId).stream()
+                .filter(i -> !i.isHidden())
+                .toList();
+        if (visible.isEmpty() || !visible.stream().allMatch(MapItem::isLearned)) {
+            return;
+        }
+        problems.findByChapterId(chapterId)
+                .filter(p -> p.getDueAt() == null)
+                .ifPresent(p -> p.setDueAt(clock.instant().plus(Duration.ofDays(1))));
     }
 
     @Transactional(readOnly = true)

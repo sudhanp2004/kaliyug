@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 /** Hands out API keys round-robin, skipping keys that are cooling down after a rate limit. */
 public class KeyPool {
@@ -24,6 +25,16 @@ public class KeyPool {
     }
 
     public synchronized String acquire() throws InterruptedException {
+        try {
+            return acquire(null);
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("unreachable: no deadline", e);
+        }
+    }
+
+    /** Like {@link #acquire()}, but gives up once every key has stayed cooling for {@code maxWait}. Null waits forever. */
+    public synchronized String acquire(Duration maxWait) throws InterruptedException, TimeoutException {
+        Instant deadline = maxWait == null ? null : clock.instant().plus(maxWait);
         while (true) {
             Instant now = clock.instant();
             for (int i = 0; i < keys.size(); i++) {
@@ -35,6 +46,14 @@ public class KeyPool {
                 }
             }
             Instant earliest = coolingUntil.values().stream().min(Instant::compareTo).orElse(now);
+            if (deadline != null) {
+                if (!now.isBefore(deadline)) {
+                    throw new TimeoutException("All API keys are rate-limited");
+                }
+                if (earliest.isAfter(deadline)) {
+                    earliest = deadline;
+                }
+            }
             wait(Math.max(1, Duration.between(now, earliest).toMillis()));
         }
     }

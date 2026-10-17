@@ -33,7 +33,7 @@ public class MapItem {
     public MapItem(Chapter chapter, int orderIndex, String title, int startPage, int endPage) {
         this.chapter = chapter;
         this.orderIndex = orderIndex;
-        this.title = title;
+        this.title = Text.clip(title, Text.TITLE);
         this.startPage = startPage;
         this.endPage = endPage;
     }

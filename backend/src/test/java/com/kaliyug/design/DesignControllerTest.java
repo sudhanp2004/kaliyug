@@ -99,15 +99,21 @@ class DesignControllerTest {
 
     @Test
     void requirementsDropLeakedPointIds() throws Exception {
-        Problem leaky = new Problem(fx.chapter(fx.book("Other"), 9, "CHAPTER 9", ChapterKind.DESIGN), "Design X",
-                "[\"Low latency (142)\",\"Keys are unique (point 221).\",\"Spread load (points 3, 4)\",\"10,000 IDs (per second)\"]", "{}");
-        leaky = problems.save(leaky);
+        // p2 and p3 belong to the chapter but are not linked to the problem; the AI still cites them.
+        problem.setPoints(Set.of(p1));
+        problems.save(problem);
+        String json = "[\"Low latency (" + p1.getId() + ")\",\"Keys are unique (point " + p2.getId() + ").\","
+                + "\"Spread load (points " + p1.getId() + ", " + p3.getId() + ")\",\"10,000 IDs (per second)\","
+                + "\"Write QPS is about (1160)\",\"Store (100,000,000) URLs\"]";
+        jdbc.update("update problem set requirements_json = ? where id = ?", json, problem.getId());
 
-        mvc.perform(get("/api/problems/{id}", leaky.getId()))
+        mvc.perform(get("/api/problems/{id}", problem.getId()))
                 .andExpect(jsonPath("$.requirements[0]").value("Low latency"))
                 .andExpect(jsonPath("$.requirements[1]").value("Keys are unique."))
                 .andExpect(jsonPath("$.requirements[2]").value("Spread load"))
-                .andExpect(jsonPath("$.requirements[3]").value("10,000 IDs (per second)"));
+                .andExpect(jsonPath("$.requirements[3]").value("10,000 IDs (per second)"))
+                .andExpect(jsonPath("$.requirements[4]").value("Write QPS is about (1160)"))
+                .andExpect(jsonPath("$.requirements[5]").value("Store (100,000,000) URLs"));
     }
 
     @Test

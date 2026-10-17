@@ -2,6 +2,7 @@ package com.kaliyug.domain;
 
 import java.time.Instant;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -21,6 +22,7 @@ public class Question {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     private Point point;
     @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "varchar(32)")
     private QuestionType type;
     @Lob
     private String prompt;

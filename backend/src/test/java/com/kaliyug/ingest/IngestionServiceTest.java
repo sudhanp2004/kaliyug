@@ -333,4 +333,94 @@ class IngestionServiceTest {
         assertEquals(List.of(ChapterKind.FILLER, ChapterKind.CONCEPT, ChapterKind.DESIGN), kinds);
         assertEquals(ResourceStatus.READY, resources.findById(bookId).orElseThrow().getStatus());
     }
+
+    @Test
+    void oneMalformedPointIsDroppedNotTheWholeSection() {
+        String mixed = """
+                {"points":[
+                  {"kind":"CONCEPT","text":"valid","firstPage":2,"lastPage":2,
+                   "evidence":"The load balancer evenly distributes incoming traffic across servers.",
+                   "questions":[{"type":"SHORT","prompt":"Q?","modelAnswer":"A."}]},
+                  {"kind":"DEFINITION","text":"odd kind","firstPage":2,"lastPage":2,
+                   "evidence":"The load balancer evenly distributes incoming traffic across servers.",
+                   "questions":[{"type":"SHORT","prompt":"Q?","modelAnswer":"A."}]},
+                  {"kind":"FACT","text":"no pages",
+                   "evidence":"The load balancer evenly distributes incoming traffic across servers.",
+                   "questions":[{"type":"SHORT","prompt":"Q?","modelAnswer":"A."}]}]}""";
+        llm.reply(CLASSIFY).reply(SPLIT_CH1).reply(SPLIT_CH2)
+                .reply(mixed).reply(onePoint(4)).reply(onePoint(6))
+                .replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        List<String> texts = points.findAll().stream().map(Point::getText).toList();
+        assertTrue(texts.containsAll(List.of("valid", "odd kind")));
+        assertFalse(texts.contains("no pages"));
+        assertEquals(ResourceStatus.READY, resources.findById(bookId).orElseThrow().getStatus());
+    }
+
+    @Test
+    void unusableAiRepliesGiveAnHonestFailureReason() {
+        llm.reply(CLASSIFY).reply(SPLIT_CH1).reply(SPLIT_CH2);
+        for (int i = 0; i < 12; i++) {
+            llm.reply("not json at all");
+        }
+
+        ingestion.run(bookId);
+
+        Resource r = resources.findById(bookId).orElseThrow();
+        assertEquals(ResourceStatus.FAILED, r.getStatus());
+        assertEquals("The AI kept giving unusable answers for one section — press Retry in Library.", r.getFailureReason());
+    }
+
+    @Test
+    void shortFillerVerdictIsRecheckedByDefault() {
+        String ch2Filler = """
+                {"chapters":[{"index":0,"kind":"FILLER"},{"index":1,"kind":"CONCEPT"},{"index":2,"kind":"FILLER"}]}""";
+        llm.reply(ch2Filler).reply("{\"chapters\":[{\"index\":2,\"kind\":\"DESIGN\"}]}")
+                .reply(SPLIT_CH1).reply(SPLIT_CH2)
+                .reply(onePoint(2)).reply(onePoint(4)).reply(onePoint(6))
+                .replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        assertEquals(ChapterKind.DESIGN, chapters.findByResourceIdOrderByOrderIndex(bookId).get(2).getKind(),
+                "a 3-page chapter labelled filler gets a second look");
+    }
+
+    @Test
+    void overlongSectionTitleIsClippedNotFatal() {
+        String longTitle = "T".repeat(400);
+        llm.reply(CLASSIFY).reply("{\"sections\":[{\"title\":\"" + longTitle + "\",\"startPage\":2,\"endPage\":3}]}")
+                .reply(SPLIT_CH2).reply(onePoint(2)).reply(onePoint(4)).reply(onePoint(6))
+                .replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        assertEquals(ResourceStatus.READY, resources.findById(bookId).orElseThrow().getStatus());
+        var ch1 = chapters.findByResourceIdOrderByOrderIndex(bookId).get(1);
+        assertEquals(255, mapItems.findByChapterIdOrderByOrderIndex(ch1.getId()).get(0).getTitle().length());
+    }
+
+    @Test
+    void problemGeneratedAfterChapterWasLearnedIsScheduled() {
+        llm.reply(CLASSIFY).reply(SPLIT_CH1).reply(SPLIT_CH2)
+                .reply(onePoint(2)).reply(onePoint(4)).reply(onePoint(6))
+                .failTimes(12, new LlmUnavailableException("down"));
+        ingestion.run(bookId);
+        var ch2 = chapters.findByResourceIdOrderByOrderIndex(bookId).get(2);
+        for (MapItem item : mapItems.findByChapterIdOrderByOrderIndex(ch2.getId())) {
+            item.setLearnedAt(Instant.now());
+            mapItems.save(item);
+        }
+        Resource r = resources.findById(bookId).orElseThrow();
+        r.setStatus(ResourceStatus.INGESTING);
+        resources.save(r);
+        llm.reset();
+        llm.replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        assertTrue(problems.findAll().get(0).getDueAt() != null, "problem for an already-learned chapter must come due");
+    }
 }

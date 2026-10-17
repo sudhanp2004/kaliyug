@@ -43,4 +43,17 @@ class KeyPoolTest {
         assertEquals("a", key);
         assertTrue(elapsedMs >= 40 && elapsedMs < 2000, "waited " + elapsedMs + "ms");
     }
+
+    @Test
+    void acquireGivesUpAfterMaxWait() {
+        var pool = new KeyPool(List.of("a", "b"), Clock.systemUTC());
+        pool.coolDown("a", Duration.ofSeconds(5));
+        pool.coolDown("b", Duration.ofSeconds(5));
+
+        long start = System.nanoTime();
+        org.junit.jupiter.api.Assertions.assertThrows(java.util.concurrent.TimeoutException.class,
+                () -> pool.acquire(Duration.ofMillis(100)));
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+        assertTrue(elapsedMs >= 90 && elapsedMs < 2000, "gave up after " + elapsedMs + "ms");
+    }
 }

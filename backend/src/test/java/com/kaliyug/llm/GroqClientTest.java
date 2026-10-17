@@ -33,10 +33,12 @@ class GroqClientTest {
     private MockRestServiceServer server;
     private KeyPool pool;
     private GroqClient client;
+    private RestClient.Builder lastBuilder;
 
     @BeforeEach
     void setUp() {
         RestClient.Builder builder = RestClient.builder();
+        lastBuilder = builder;
         server = MockRestServiceServer.bindTo(builder).build();
         pool = new KeyPool(List.of("k1", "k2"), Clock.systemUTC());
         client = new GroqClient(builder, pool, JsonMapper.builder().build(), "https://groq.test/v1", "openai/gpt-oss-120b", Duration.ofMillis(1));
@@ -96,5 +98,46 @@ class GroqClientTest {
         var e = assertThrows(LlmUnavailableException.class, () -> client.completeJson("sys", "hello"));
         server.verify();
         assertFalse(e.getMessage().contains("k1") || e.getMessage().contains("k2"));
+    }
+
+    @Test
+    void slowServerTimesOutAsUnavailable() throws Exception {
+        var slow = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        slow.createContext("/", exchange -> {
+            try {
+                Thread.sleep(3000);
+            } catch (InterruptedException ignored) {
+                // test server shutting down
+            }
+            exchange.close();
+        });
+        slow.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+        slow.start();
+        try {
+            var timed = new GroqClient(RestClient.builder(), pool, JsonMapper.builder().build(),
+                    "http://127.0.0.1:" + slow.getAddress().getPort(), "m", Duration.ofMillis(1),
+                    Duration.ofMillis(200), Duration.ofSeconds(1));
+            long start = System.nanoTime();
+            assertThrows(LlmUnavailableException.class, () -> timed.completeJson("sys", "hello"));
+            assertTrue((System.nanoTime() - start) / 1_000_000 < 2500, "should not wait for the slow server");
+        } finally {
+            slow.stop(0);
+        }
+    }
+
+    @Test
+    void allKeysRateLimitedGivesUpAfterMaxKeyWait() {
+        HttpHeaders retryAfter = new HttpHeaders();
+        retryAfter.add("retry-after", "30");
+        server.expect(times(2), requestTo(URL)).andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).headers(retryAfter));
+        var waiting = new GroqClient(builderFor(server), pool, JsonMapper.builder().build(), "https://groq.test/v1", "m",
+                Duration.ofMillis(1), null, Duration.ofMillis(200));
+
+        var e = assertThrows(LlmUnavailableException.class, () -> waiting.completeJson("sys", "hello"));
+        assertTrue(e.getMessage().contains("rate-limited"), e.getMessage());
+    }
+
+    private RestClient.Builder builderFor(MockRestServiceServer unused) {
+        return lastBuilder;
     }
 }

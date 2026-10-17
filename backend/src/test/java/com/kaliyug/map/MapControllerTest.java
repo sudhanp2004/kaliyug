@@ -127,4 +127,15 @@ class MapControllerTest {
     void unknownItemIs404() throws Exception {
         mvc.perform(post("/api/map-items/{id}/learned", 999999)).andExpect(status().isNotFound());
     }
+
+    @Test
+    void hidingLastUnlearnedItemSchedulesProblem() throws Exception {
+        Problem problem = problems.save(new Problem(design, "Design a rate limiter", "[]", "{}"));
+        mvc.perform(post("/api/map-items/{id}/learned", first.getId())).andExpect(status().isNoContent());
+
+        mvc.perform(post("/api/map-items/{id}/hide", second.getId())).andExpect(status().isNoContent());
+
+        Instant due = problems.findById(problem.getId()).orElseThrow().getDueAt();
+        assertTrue(due != null && near(due, Instant.now().plus(Duration.ofDays(1))), "due " + due);
+    }
 }

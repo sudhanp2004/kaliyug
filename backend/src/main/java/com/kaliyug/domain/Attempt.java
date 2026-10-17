@@ -2,6 +2,7 @@ package com.kaliyug.domain;
 
 import java.time.Instant;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -26,6 +27,7 @@ public class Attempt {
     @ManyToOne(fetch = FetchType.LAZY)
     private Problem problem;
     @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "varchar(32)")
     private Verdict verdict;
     private boolean overridden;
     private int boxBefore;

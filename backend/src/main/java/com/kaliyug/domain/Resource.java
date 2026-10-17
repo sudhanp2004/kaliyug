@@ -22,8 +22,9 @@ public class Resource {
     @Column(unique = true)
     private String sha256;
     @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "varchar(32)")
     private ResourceStatus status = ResourceStatus.INGESTING;
-    @Column(length = 1000)
+    @Column(length = Text.REASON)
     private String failureReason;
     private int totalPages;
     private Instant createdAt;
@@ -32,7 +33,7 @@ public class Resource {
     }
 
     public Resource(String title, String storedPath, String sha256, Instant createdAt) {
-        this.title = title;
+        this.title = Text.clip(title, Text.TITLE);
         this.storedPath = storedPath;
         this.sha256 = sha256;
         this.createdAt = createdAt;
@@ -46,7 +47,7 @@ public class Resource {
     public ResourceStatus getStatus() { return status; }
     public void setStatus(ResourceStatus status) { this.status = status; }
     public String getFailureReason() { return failureReason; }
-    public void setFailureReason(String failureReason) { this.failureReason = failureReason; }
+    public void setFailureReason(String failureReason) { this.failureReason = Text.clip(failureReason, Text.REASON); }
     public int getTotalPages() { return totalPages; }
     public void setTotalPages(int totalPages) { this.totalPages = totalPages; }
     public Instant getCreatedAt() { return createdAt; }

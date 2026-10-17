@@ -47,8 +47,10 @@ import com.kaliyug.ingest.AiContracts.Reference;
 import com.kaliyug.ingest.AiContracts.Section;
 import com.kaliyug.ingest.AiContracts.Sections;
 import com.kaliyug.llm.JsonLlm;
+import com.kaliyug.llm.LlmBadReplyException;
 import com.kaliyug.llm.LlmUnavailableException;
 import com.kaliyug.llm.Prompts;
+import com.kaliyug.map.QueueService;
 
 /**
  * Turns a PDF into chapters, map items, points, questions and design problems.
@@ -58,6 +60,7 @@ import com.kaliyug.llm.Prompts;
 public class IngestionService {
 
     static final String AI_UNREACHABLE = "AI service unreachable — press Retry in Library.";
+    static final String AI_UNUSABLE = "The AI kept giving unusable answers for one section — press Retry in Library.";
     private static final Logger log = LoggerFactory.getLogger(IngestionService.class);
     private static final int MAX_RETRIES = 5;
     private static final int CLASSIFY_PREVIEW_CHARS = 800;
@@ -65,8 +68,8 @@ public class IngestionService {
     static final int DEFAULT_MAX_INPUT_CHARS = 16_000;
     private static final int FALLBACK_SECTION_PAGES = 4;
     private static final int MIN_PAGE_CHARS = 80;
-    /** Forewords and afterwords are short; a long chapter labelled filler gets a second look with more of its text. */
-    static final int DEFAULT_FILLER_RECHECK_MIN_PAGES = 9;
+    /** Title pages and forewords are 1-2 pages; anything longer labelled filler gets a second look with more of its text. */
+    static final int DEFAULT_FILLER_RECHECK_MIN_PAGES = 3;
     private static final int RECHECK_PREVIEW_CHARS = 4_000;
 
     private final ResourceRepository resources;
@@ -81,6 +84,7 @@ public class IngestionService {
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
     private final ExecutorService executor;
+    private final QueueService queue;
     private Duration retryDelay = Duration.ofSeconds(60);
     private int maxInputChars = DEFAULT_MAX_INPUT_CHARS;
     private int fillerRecheckMinPages = DEFAULT_FILLER_RECHECK_MIN_PAGES;
@@ -88,7 +92,8 @@ public class IngestionService {
     public IngestionService(ResourceRepository resources, PageTextRepository pages, ChapterRepository chapters,
             MapItemRepository mapItems, PointRepository points, QuestionRepository questions,
             ProblemRepository problems, JsonLlm ai, Prompts prompts, ObjectMapper mapper, TransactionTemplate tx,
-            ExecutorService ingestionExecutor) {
+            ExecutorService ingestionExecutor, QueueService queue) {
+        this.queue = queue;
         this.resources = resources;
         this.pages = pages;
         this.chapters = chapters;
@@ -155,7 +160,7 @@ public class IngestionService {
             setStatus(resourceId, ResourceStatus.READY, null);
         } catch (LlmUnavailableException e) {
             log.warn("Giving up on resource {} for now: {}", resourceId, e.getMessage());
-            fail(resourceId, AI_UNREACHABLE);
+            fail(resourceId, e instanceof LlmBadReplyException ? AI_UNUSABLE : AI_UNREACHABLE);
         }
     }
 
@@ -349,6 +354,7 @@ public class IngestionService {
             problem.setPoints(new HashSet<>(points.findAllById(used)));
             problems.save(problem);
         });
+        queue.scheduleProblemIfChapterDone(chapter.getId());
     }
 
     private static List<Long> keep(List<Long> ids, Set<Long> allowed, Set<Long> used) {

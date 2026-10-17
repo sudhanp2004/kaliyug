@@ -20,6 +20,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.kaliyug.domain.Attempt;
 import com.kaliyug.domain.AttemptRepository;
 import com.kaliyug.domain.Point;
+import com.kaliyug.domain.PointRepository;
 import com.kaliyug.domain.Problem;
 import com.kaliyug.domain.ProblemRepository;
 import com.kaliyug.domain.Verdict;
@@ -54,6 +55,7 @@ public class DesignService {
     }
 
     private final ProblemRepository problems;
+    private final PointRepository points;
     private final AttemptRepository attempts;
     private final Scheduler scheduler;
     private final JsonLlm ai;
@@ -61,9 +63,10 @@ public class DesignService {
     private final ObjectMapper mapper;
     private final Clock clock;
 
-    public DesignService(ProblemRepository problems, AttemptRepository attempts, Scheduler scheduler, JsonLlm ai,
+    public DesignService(ProblemRepository problems, PointRepository points, AttemptRepository attempts, Scheduler scheduler, JsonLlm ai,
             Prompts prompts, ObjectMapper mapper, Clock clock) {
         this.problems = problems;
+        this.points = points;
         this.attempts = attempts;
         this.scheduler = scheduler;
         this.ai = ai;
@@ -139,7 +142,7 @@ public class DesignService {
     }
 
     private List<String> requirements(Problem p) {
-        return Requirements.read(mapper, p.getRequirementsJson());
+        return Requirements.read(mapper, p.getRequirementsJson(), points.findIdsByChapterId(p.getChapter().getId()));
     }
 
     private static Set<Long> keep(List<Long> ids, Set<Long> allowed) {

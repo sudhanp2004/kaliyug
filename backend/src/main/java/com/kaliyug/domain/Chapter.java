@@ -1,5 +1,6 @@
 package com.kaliyug.domain;
 
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -23,6 +24,7 @@ public class Chapter {
     private int startPage;
     private int endPage;
     @Enumerated(EnumType.STRING)
+    @Column(columnDefinition = "varchar(32)")
     private ChapterKind kind;
     private boolean sectionsSplit;
 
@@ -32,7 +34,7 @@ public class Chapter {
     public Chapter(Resource resource, int orderIndex, String title, int startPage, int endPage, ChapterKind kind) {
         this.resource = resource;
         this.orderIndex = orderIndex;
-        this.title = title;
+        this.title = Text.clip(title, Text.TITLE);
         this.startPage = startPage;
         this.endPage = endPage;
         this.kind = kind;
