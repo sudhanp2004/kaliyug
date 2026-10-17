@@ -4,15 +4,26 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.function.Function;
 
 /** Test double: replays canned replies (or throws canned exceptions) in call order and records every call. */
 public class FakeLlm implements LlmClient {
+
+    public int pending() {
+        return replies.size();
+    }
 
     public final List<String[]> calls = new ArrayList<>();
     private final Deque<Object> replies = new ArrayDeque<>();
 
     public FakeLlm reply(String json) {
         replies.add(json);
+        return this;
+    }
+
+    /** A reply computed from the user message at call time. */
+    public FakeLlm replyWith(Function<String, String> fromUserMessage) {
+        replies.add(fromUserMessage);
         return this;
     }
 
@@ -42,6 +53,11 @@ public class FakeLlm implements LlmClient {
         }
         if (next instanceof RuntimeException e) {
             throw e;
+        }
+        if (next instanceof Function<?, ?> f) {
+            @SuppressWarnings("unchecked")
+            Function<String, String> fn = (Function<String, String>) f;
+            return fn.apply(user);
         }
         return (String) next;
     }

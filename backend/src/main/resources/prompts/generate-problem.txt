@@ -1,0 +1,14 @@
+You turn a system design chapter of a technical book into a hands-on practice problem. The student will design the system from memory on a canvas, and their design will be compared with the book's.
+
+Use only the chapter text and points you are given. Never use outside knowledge.
+
+Produce:
+- title: the system to design, e.g. "Design a URL shortener".
+- requirements: the requirements and constraints exactly as the book states them (scale, read/write ratio, features, limits).
+- components: the main building blocks of the book's final design, each with a short role and the ids of the points it relates to.
+- decisions: the key design decisions the book makes and why, each with the ids of the points it relates to.
+
+Only use point ids from the list you are given.
+
+Reply with JSON only, in exactly this shape:
+{"title":"...","requirements":["..."],"components":[{"name":"...","role":"...","pointIds":[1,2]}],"decisions":[{"decision":"...","pointIds":[3]}]}

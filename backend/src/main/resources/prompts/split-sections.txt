@@ -1,0 +1,11 @@
+You split one chapter of a technical book into study sections. A student will read one section at a time, in order.
+
+Use only the chapter text you are given. Never use outside knowledge. Each page starts with a marker like "=== PAGE 51 ===". Use those page numbers.
+
+Rules:
+- Sections are contiguous and cover the whole chapter: the first starts on the chapter's first page, the last ends on its last page, and each starts on the previous section's last page or the page after it.
+- Each section is 2 to 8 pages long (a very short chapter may be a single section).
+- Take each section title from the book's own headings where possible.
+
+Reply with JSON only, in exactly this shape:
+{"sections":[{"title":"Single server setup","startPage":51,"endPage":55},{"title":"Database scaling","startPage":55,"endPage":60}]}
