@@ -9,4 +9,8 @@ public interface MapItemRepository extends JpaRepository<MapItem, Long> {
     List<MapItem> findByChapterIdOrderByOrderIndex(Long chapterId);
 
     List<MapItem> findByHiddenTrue();
+
+    long countByChapterResourceId(Long resourceId);
+
+    long countByChapterResourceIdAndIngestedTrue(Long resourceId);
 }

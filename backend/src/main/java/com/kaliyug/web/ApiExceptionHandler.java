@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import com.kaliyug.library.DuplicateResourceException;
 import com.kaliyug.llm.LlmUnavailableException;
 
 /** Turns expected failures into {"error": "..."} responses the UI can show as-is. */
@@ -23,5 +24,10 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<Map<String, String>> badRequest(IllegalArgumentException e) {
         return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+    }
+
+    @ExceptionHandler(DuplicateResourceException.class)
+    ResponseEntity<Map<String, String>> duplicate(DuplicateResourceException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", e.getMessage()));
     }
 }
