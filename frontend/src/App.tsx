@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes } from 'react-router-dom'
 import HomePage from './pages/HomePage'
+import RevisionPage from './pages/RevisionPage'
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
       </nav>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/revise" element={<RevisionPage />} />
       </Routes>
     </>
   )
