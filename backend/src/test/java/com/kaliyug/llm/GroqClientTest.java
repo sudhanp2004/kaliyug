@@ -16,6 +16,7 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.ExpectedCount.times;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
@@ -67,6 +68,25 @@ class GroqClientTest {
         assertEquals("{\"x\":1}", client.completeJson("sys", "hello"));
         server.verify();
         assertEquals("k2", pool.acquire());
+    }
+
+    @Test
+    void invalidJsonGenerationIsRetriedImmediately() {
+        server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":{\"message\":\"Failed to generate JSON\",\"code\":\"json_validate_failed\"}}"));
+        server.expect(requestTo(URL)).andRespond(withSuccess(OK, MediaType.APPLICATION_JSON));
+
+        assertEquals("{\"x\":1}", client.completeJson("sys", "hello"));
+        server.verify();
+    }
+
+    @Test
+    void otherBadRequestsFailWithGroqsReason() {
+        server.expect(requestTo(URL)).andRespond(withStatus(HttpStatus.BAD_REQUEST).contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":{\"message\":\"context too long\",\"code\":\"context_length_exceeded\"}}"));
+
+        var e = assertThrows(LlmUnavailableException.class, () -> client.completeJson("sys", "hello"));
+        assertTrue(e.getMessage().contains("context_length_exceeded"), e.getMessage());
     }
 
     @Test

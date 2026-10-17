@@ -73,7 +73,13 @@ public class GroqClient implements LlmClient {
                     keys.coolDown(key, retryAfter(e.getResponseHeaders()));
                     continue;
                 }
-                throw new LlmUnavailableException("Groq rejected the request (HTTP " + e.getStatusCode().value() + ")");
+                String code = errorCode(e.getResponseBodyAsString());
+                if ("json_validate_failed".equals(code) && ++failures <= MAX_RETRIES) {
+                    log.warn("Groq could not produce valid JSON, retry {}/{}", failures, MAX_RETRIES);
+                    continue;
+                }
+                throw new LlmUnavailableException("Groq rejected the request (HTTP " + e.getStatusCode().value()
+                        + (code == null ? "" : ", " + code) + ")");
             } catch (HttpServerErrorException | ResourceAccessException e) {
                 failures++;
                 if (failures > MAX_RETRIES) {
@@ -91,6 +97,16 @@ public class GroqClient implements LlmClient {
             throw new LlmUnavailableException("Groq reply had no message content");
         }
         return content.asString();
+    }
+
+    /** Groq's machine-readable error code, e.g. "json_validate_failed". Never contains the key. */
+    private String errorCode(String body) {
+        try {
+            JsonNode code = mapper.readTree(body).path("error").path("code");
+            return code.isString() ? code.asString() : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     private static Duration retryAfter(HttpHeaders headers) {
