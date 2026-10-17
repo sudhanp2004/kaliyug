@@ -65,6 +65,9 @@ public class IngestionService {
     static final int DEFAULT_MAX_INPUT_CHARS = 16_000;
     private static final int FALLBACK_SECTION_PAGES = 4;
     private static final int MIN_PAGE_CHARS = 80;
+    /** Forewords and afterwords are short; a long chapter labelled filler gets a second look with more of its text. */
+    static final int DEFAULT_FILLER_RECHECK_MIN_PAGES = 9;
+    private static final int RECHECK_PREVIEW_CHARS = 4_000;
 
     private final ResourceRepository resources;
     private final PageTextRepository pages;
@@ -80,6 +83,7 @@ public class IngestionService {
     private final ExecutorService executor;
     private Duration retryDelay = Duration.ofSeconds(60);
     private int maxInputChars = DEFAULT_MAX_INPUT_CHARS;
+    private int fillerRecheckMinPages = DEFAULT_FILLER_RECHECK_MIN_PAGES;
 
     public IngestionService(ResourceRepository resources, PageTextRepository pages, ChapterRepository chapters,
             MapItemRepository mapItems, PointRepository points, QuestionRepository questions,
@@ -105,6 +109,10 @@ public class IngestionService {
 
     void setMaxInputChars(int maxInputChars) {
         this.maxInputChars = maxInputChars;
+    }
+
+    void setFillerRecheckMinPages(int pages) {
+        this.fillerRecheckMinPages = pages;
     }
 
     public void start(Long resourceId) {
@@ -192,18 +200,40 @@ public class IngestionService {
         return true;
     }
 
-    // Step 3
+    // Step 3: only chapters not yet classified; indexes in messages are the chapters' own order indexes
     private void classifyChapters(Long resourceId) {
-        List<Chapter> all = chapters.findByResourceIdOrderByOrderIndex(resourceId);
-        if (all.stream().noneMatch(c -> c.getKind() == ChapterKind.UNCLASSIFIED)) {
+        List<Chapter> todo = chapters.findByResourceIdOrderByOrderIndex(resourceId).stream()
+                .filter(c -> c.getKind() == ChapterKind.UNCLASSIFIED)
+                .toList();
+        if (todo.isEmpty()) {
             return;
         }
-        StringBuilder user = new StringBuilder("Chapters (index | title | start of first page):\n");
-        for (int i = 0; i < all.size(); i++) {
-            Chapter c = all.get(i);
-            String first = pageText(resourceId, c.getStartPage(), c.getStartPage());
-            String preview = first.substring(0, Math.min(CLASSIFY_PREVIEW_CHARS, first.length())).replaceAll("\\s+", " ");
-            user.append(i).append(" | ").append(c.getTitle()).append(" | ").append(preview).append('\n');
+        Map<Integer, ChapterKind> kinds = askKinds(resourceId, todo, CLASSIFY_PREVIEW_CHARS);
+        List<Chapter> recheck = todo.stream()
+                .filter(c -> kinds.get(c.getOrderIndex()) == ChapterKind.FILLER)
+                .filter(c -> c.getEndPage() - c.getStartPage() + 1 >= fillerRecheckMinPages)
+                .toList();
+        for (Chapter c : recheck) {
+            ChapterKind second = askKinds(resourceId, List.of(c), RECHECK_PREVIEW_CHARS).get(c.getOrderIndex());
+            if (second != null) {
+                kinds.put(c.getOrderIndex(), second);
+            }
+        }
+        tx.executeWithoutResult(s -> {
+            for (Chapter c : todo) {
+                Chapter fresh = chapters.findById(c.getId()).orElseThrow();
+                fresh.setKind(kinds.getOrDefault(c.getOrderIndex(), ChapterKind.CONCEPT));
+                chapters.save(fresh);
+            }
+        });
+    }
+
+    private Map<Integer, ChapterKind> askKinds(Long resourceId, List<Chapter> list, int previewChars) {
+        StringBuilder user = new StringBuilder("Chapters (index | title | start of the chapter):\n");
+        for (Chapter c : list) {
+            String start = pageText(resourceId, c.getStartPage(), Math.min(c.getEndPage(), c.getStartPage() + 2));
+            String preview = start.substring(0, Math.min(previewChars, start.length())).replaceAll("\\s+", " ");
+            user.append(c.getOrderIndex()).append(" | ").append(c.getTitle()).append(" | ").append(preview).append('\n');
         }
         ChapterKinds reply = ai.ask(prompts.get("classify-chapters"), user.toString(), ChapterKinds.class);
         Map<Integer, ChapterKind> kinds = new LinkedHashMap<>();
@@ -212,13 +242,7 @@ public class IngestionService {
                 kinds.put(item.index(), item.kind());
             }
         }
-        tx.executeWithoutResult(s -> {
-            for (int i = 0; i < all.size(); i++) {
-                Chapter c = all.get(i);
-                c.setKind(kinds.getOrDefault(i, ChapterKind.CONCEPT));
-                chapters.save(c);
-            }
-        });
+        return kinds;
     }
 
     // Step 4

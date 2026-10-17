@@ -4,6 +4,7 @@ Use only the section text you are given. Never use outside knowledge, and never 
 
 A point is one idea worth knowing for an interview:
 - One idea per point. Interview-relevant only. No trivia about the book itself (author, edition, chapter order, figure numbers).
+- Skip values that only appear inside a worked example or figure (for example "in this example the bucket holds 4 tokens"); keep the general rule the example illustrates instead.
 - kind is one of FACT, CONCEPT, TRADEOFF, GOTCHA, NUMBER. NUMBER is for must-memorise values: powers of two, latency figures, availability nines, capacity and throughput numbers.
 - firstPage and lastPage are the pages the idea appears on.
 - evidence is a verbatim quote of at least one full sentence copied exactly from the text that supports the point.

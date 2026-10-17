@@ -72,6 +72,7 @@ class IngestionServiceTest {
         llm.reset();
         ingestion.setRetryDelay(java.time.Duration.ofMillis(1));
         ingestion.setMaxInputChars(IngestionService.DEFAULT_MAX_INPUT_CHARS);
+        ingestion.setFillerRecheckMinPages(IngestionService.DEFAULT_FILLER_RECHECK_MIN_PAGES);
         bookId = resources.save(new Resource("Fixture Book", fixture.toString(), "sha", Instant.now())).getId();
     }
 
@@ -290,5 +291,46 @@ class IngestionServiceTest {
         List<MapItem> items = mapItems.findByChapterIdOrderByOrderIndex(ch2.getId());
         assertEquals(1, items.size());
         assertEquals("Chapter 2: Design X (pp. 4–6)", items.get(0).getTitle());
+    }
+
+    @Test
+    void longChapterLabelledFillerIsDoubleChecked() {
+        ingestion.setFillerRecheckMinPages(3);
+        String allFiller = """
+                {"chapters":[{"index":0,"kind":"FILLER"},{"index":1,"kind":"CONCEPT"},{"index":2,"kind":"FILLER"}]}""";
+        String recheck = """
+                {"chapters":[{"index":2,"kind":"DESIGN"}]}""";
+        llm.reply(allFiller).reply(recheck).reply(SPLIT_CH1).reply(SPLIT_CH2)
+                .reply(onePoint(2)).reply(onePoint(4)).reply(onePoint(6))
+                .replyWith(IngestionServiceTest::problemCitingListedPoints);
+
+        ingestion.run(bookId);
+
+        var kinds = chapters.findByResourceIdOrderByOrderIndex(bookId).stream().map(c -> c.getKind()).toList();
+        assertEquals(List.of(ChapterKind.FILLER, ChapterKind.CONCEPT, ChapterKind.DESIGN), kinds);
+        String recheckMessage = llm.calls.get(1)[1];
+        assertTrue(recheckMessage.contains("Chapter 2: Design X") && !recheckMessage.contains("Foreword"),
+                "only the long chapter is rechecked (the 1-page foreword is not)");
+    }
+
+    @Test
+    void onlyUnclassifiedChaptersAreReclassified() {
+        queueHappyPath();
+        ingestion.run(bookId);
+        var ch2 = chapters.findByResourceIdOrderByOrderIndex(bookId).get(2);
+        ch2.setKind(ChapterKind.UNCLASSIFIED);
+        chapters.save(ch2);
+        Resource r = resources.findById(bookId).orElseThrow();
+        r.setStatus(ResourceStatus.INGESTING);
+        resources.save(r);
+        llm.reset();
+        llm.reply("""
+                {"chapters":[{"index":0,"kind":"CONCEPT"},{"index":1,"kind":"FILLER"},{"index":2,"kind":"DESIGN"}]}""");
+
+        ingestion.run(bookId);
+
+        var kinds = chapters.findByResourceIdOrderByOrderIndex(bookId).stream().map(c -> c.getKind()).toList();
+        assertEquals(List.of(ChapterKind.FILLER, ChapterKind.CONCEPT, ChapterKind.DESIGN), kinds);
+        assertEquals(ResourceStatus.READY, resources.findById(bookId).orElseThrow().getStatus());
     }
 }

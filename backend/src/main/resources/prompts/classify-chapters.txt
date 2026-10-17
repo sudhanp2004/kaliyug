@@ -7,5 +7,7 @@ Classify every chapter as exactly one of:
 - DESIGN: the chapter designs one specific system end to end (for example "Design a URL shortener", "Design a chat system").
 - CONCEPT: everything else that teaches material.
 
+A chapter that walks through designing a system is DESIGN wherever it appears in the book, including the last chapters. When unsure, choose CONCEPT: skipping real material is worse than including a little filler.
+
 Reply with JSON only, in exactly this shape, with one entry per chapter index you were given:
 {"chapters":[{"index":0,"kind":"FILLER"},{"index":1,"kind":"CONCEPT"},{"index":2,"kind":"DESIGN"}]}
