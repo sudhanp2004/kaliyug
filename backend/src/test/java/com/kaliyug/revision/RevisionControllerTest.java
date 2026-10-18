@@ -55,6 +55,7 @@ class RevisionControllerTest {
     @Autowired QuestionRepository questions;
     @Autowired AttemptRepository attempts;
     @Autowired ProblemRepository problems;
+    @Autowired com.kaliyug.domain.ResourceRepository resources;
 
     private Chapter chapter;
     private MapItem item;
@@ -195,6 +196,19 @@ class RevisionControllerTest {
     void notYetDuePointIsNotServed() throws Exception {
         point.setDueAt(NOW.plus(Duration.ofDays(1)));
         fx.save(point);
+
+        mvc.perform(get("/api/revision/next").param("answered", "0"))
+                .andExpect(jsonPath("$.type").value("DONE"));
+    }
+
+    @Test
+    void bookWithRevisionOffIsNotAsked() throws Exception {
+        var book = chapter.getResource();
+        book.setRevisionOn(false);
+        resources.save(book);
+        Problem problem = new Problem(chapter, "Design a rate limiter", "[]", "{}");
+        problem.setDueAt(NOW.minus(Duration.ofHours(1)));
+        problems.save(problem);
 
         mvc.perform(get("/api/revision/next").param("answered", "0"))
                 .andExpect(jsonPath("$.type").value("DONE"));

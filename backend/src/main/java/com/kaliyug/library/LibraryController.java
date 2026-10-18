@@ -20,6 +20,9 @@ public class LibraryController {
     public record ImportRequest(String fileName) {
     }
 
+    public record SwitchRequest(boolean on) {
+    }
+
     private final LibraryService library;
 
     public LibraryController(LibraryService library) {
@@ -46,6 +49,18 @@ public class LibraryController {
     @ResponseStatus(HttpStatus.CREATED)
     public ResourceDto upload(@RequestParam("file") MultipartFile file) {
         return library.upload(file);
+    }
+
+    @PostMapping("/api/resources/{id}/learning")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void learning(@PathVariable Long id, @RequestBody SwitchRequest body) {
+        library.setLearning(id, body.on());
+    }
+
+    @PostMapping("/api/resources/{id}/revision")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void revision(@PathVariable Long id, @RequestBody SwitchRequest body) {
+        library.setRevision(id, body.on());
     }
 
     @PostMapping("/api/resources/{id}/retry")

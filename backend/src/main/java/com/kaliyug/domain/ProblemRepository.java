@@ -12,6 +12,6 @@ public interface ProblemRepository extends JpaRepository<Problem, Long> {
 
     Optional<Problem> findByChapterId(Long chapterId);
 
-    @Query("select p from Problem p where p.dueAt <= :now order by p.dueAt, p.id")
+    @Query("select p from Problem p where p.dueAt <= :now and p.chapter.resource.revisionOn = true order by p.dueAt, p.id")
     List<Problem> findDue(@Param("now") Instant now);
 }

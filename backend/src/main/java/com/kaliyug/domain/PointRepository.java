@@ -26,13 +26,14 @@ public interface PointRepository extends JpaRepository<Point, Long> {
               and p.mapItem.chapter.kind <> com.kaliyug.domain.ChapterKind.FILLER""")
     List<Point> findCounted();
 
-    /** Points ready for revision: due, in a learned and visible map item, outside filler chapters. */
+    /** Points ready for revision: due, in a learned and visible map item, outside filler chapters, in a book with revision on. */
     @Query("""
             select p from Point p
             where p.dueAt <= :now
               and p.mapItem.learnedAt is not null
               and p.mapItem.hidden = false
               and p.mapItem.chapter.kind <> com.kaliyug.domain.ChapterKind.FILLER
+              and p.mapItem.chapter.resource.revisionOn = true
             order by p.dueAt, p.id""")
     List<Point> findDue(@Param("now") Instant now);
 }

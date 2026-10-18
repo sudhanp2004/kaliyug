@@ -162,4 +162,26 @@ class LibraryControllerTest {
         assertEquals(null, after.getFailureReason());
         verify(ingestion, org.mockito.Mockito.times(2)).start(r.getId());
     }
+
+    @Test
+    void newBookStartsWithLearningOffAndRevisionOn() throws Exception {
+        importBook("Fixture Book.pdf")
+                .andExpect(jsonPath("$.learningOn").value(false))
+                .andExpect(jsonPath("$.revisionOn").value(true));
+    }
+
+    @Test
+    void switchesTurnLearningAndRevisionOnAndOff() throws Exception {
+        importBook("Fixture Book.pdf");
+        Long id = resources.findAll().get(0).getId();
+
+        mvc.perform(post("/api/resources/{id}/learning", id).contentType(MediaType.APPLICATION_JSON).content("{\"on\":true}"))
+                .andExpect(status().isNoContent());
+        mvc.perform(post("/api/resources/{id}/revision", id).contentType(MediaType.APPLICATION_JSON).content("{\"on\":false}"))
+                .andExpect(status().isNoContent());
+
+        mvc.perform(get("/api/resources"))
+                .andExpect(jsonPath("$[0].learningOn").value(true))
+                .andExpect(jsonPath("$[0].revisionOn").value(false));
+    }
 }

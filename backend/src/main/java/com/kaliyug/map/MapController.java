@@ -33,6 +33,12 @@ public class MapController {
         queue.markLearned(id);
     }
 
+    @PostMapping("/api/map-items/{id}/skip")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void skip(@PathVariable Long id) {
+        queue.skip(id);
+    }
+
     @PostMapping("/api/map-items/{id}/hide")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void hide(@PathVariable Long id) {

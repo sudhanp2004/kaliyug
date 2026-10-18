@@ -28,7 +28,15 @@ export type QueueItem = {
   startPage: number
   endPage: number
 }
-export type Queue = { items: QueueItem[]; remaining: number; preparing: boolean }
+export type Queue = {
+  items: QueueItem[]
+  remaining: number
+  preparing: boolean
+  /** Sections skipped and not yet back in the list. */
+  skipped: number
+  /** There are books, but learning is switched off for all of them. */
+  allPaused: boolean
+}
 
 export type QuestionView = {
   id: number
@@ -79,6 +87,8 @@ export type ResourceInfo = {
   totalPages: number
   itemsReady: number
   itemsTotal: number
+  learningOn: boolean
+  revisionOn: boolean
 }
 
 export class ApiError extends Error {
@@ -124,6 +134,7 @@ const post = <T>(url: string, body?: unknown) => request<T>('POST', url, body)
 export const getProgress = () => get<Progress>('/api/progress')
 export const getQueue = (limit = 8) => get<Queue>(`/api/queue?limit=${limit}`)
 export const markLearned = (id: number) => post<void>(`/api/map-items/${id}/learned`)
+export const skipItem = (id: number) => post<void>(`/api/map-items/${id}/skip`)
 export const hideItem = (id: number) => post<void>(`/api/map-items/${id}/hide`)
 export const unhideItem = (id: number) => post<void>(`/api/map-items/${id}/unhide`)
 export const getHidden = () => get<QueueItem[]>('/api/map-items/hidden')
@@ -151,5 +162,7 @@ export const uploadBook = (file: File) => {
   return post<ResourceInfo>('/api/resources', form)
 }
 export const retryResource = (id: number) => post<void>(`/api/resources/${id}/retry`)
+export const setLearning = (id: number, on: boolean) => post<void>(`/api/resources/${id}/learning`, { on })
+export const setRevision = (id: number, on: boolean) => post<void>(`/api/resources/${id}/revision`, { on })
 
 export const pagesLabel = (first: number, last: number) => (first === last ? `p. ${first}` : `pp. ${first}–${last}`)

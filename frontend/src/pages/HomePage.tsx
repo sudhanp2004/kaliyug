@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getProgress, getQueue, hideItem, markLearned, type Progress, type Queue } from '../api'
+import { getProgress, getQueue, hideItem, markLearned, skipItem, type Progress, type Queue } from '../api'
 import ProgressBar from '../components/ProgressBar'
 import QueueList from '../components/QueueList'
 
@@ -83,16 +83,27 @@ export default function HomePage() {
                 items={queue.items}
                 busyId={busyId}
                 onLearned={(id) => act(id, markLearned)}
-                onHide={(id) => act(id, hideItem)}
+                onSkip={(id) => act(id, skipItem)}
+                onRemove={(id) => act(id, hideItem)}
               />
             )}
             {queue.remaining > queue.items.length && (
               <p className="muted">… {queue.remaining - queue.items.length} more after these</p>
             )}
+            {queue.skipped > 0 && (
+              <p className="muted">
+                {queue.skipped} skipped {queue.skipped === 1 ? 'section — it comes' : 'sections — they come'} back after you learn 10 more.
+              </p>
+            )}
+            {queue.allPaused && (
+              <p className="muted">
+                Learning is paused for all your books. <Link to="/library">Switch one on in Library.</Link>
+              </p>
+            )}
             {(queue.preparing || progress.preparing) && (
               <p className="muted">Still reading your book… more items will appear.</p>
             )}
-            {queue.items.length === 0 && !queue.preparing && !progress.preparing && (
+            {queue.items.length === 0 && !queue.allPaused && !queue.preparing && !progress.preparing && (
               <p className="muted">You've covered everything in your books. Keep revising.</p>
             )}
           </>

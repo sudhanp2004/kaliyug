@@ -12,6 +12,8 @@ const ready = {
   totalPages: 269,
   itemsReady: 40,
   itemsTotal: 40,
+  learningOn: true,
+  revisionOn: true,
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -83,7 +85,7 @@ describe('LibraryPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Restore' }))
 
     expect(api.calls.some((c) => c.url === '/api/map-items/9/unhide')).toBe(true)
-    expect(await screen.findByText('Nothing hidden.')).toBeInTheDocument()
+    expect(await screen.findByText('Nothing removed.')).toBeInTheDocument()
   })
 
   it('readyBookShowsReady', async () => {
@@ -95,5 +97,34 @@ describe('LibraryPage', () => {
     render(<LibraryPage />)
 
     expect(await screen.findByText('Ready')).toBeInTheDocument()
+  })
+
+  it('switchesLearningAndRevision', async () => {
+    const api = mockFetch([
+      { path: '/api/resources', body: [{ ...ready, learningOn: false, revisionOn: true }] },
+      { path: '/api/resources/available', body: [] },
+      { path: '/api/map-items/hidden', body: [] },
+      { method: 'POST', path: '/api/resources/1/learning', status: 204 },
+      { method: 'POST', path: '/api/resources/1/revision', status: 204 },
+    ])
+    render(<LibraryPage />)
+
+    const learning = await screen.findByRole('checkbox', { name: 'Learning' })
+    const revision = screen.getByRole('checkbox', { name: 'Revision' })
+    expect(learning).not.toBeChecked()
+    expect(revision).toBeChecked()
+    api.add({ path: '/api/resources', body: [{ ...ready, learningOn: true, revisionOn: true }] })
+    await userEvent.click(learning)
+    expect(await screen.findByRole('checkbox', { name: 'Learning' })).toBeChecked()
+
+    api.add({ path: '/api/resources', body: [{ ...ready, learningOn: true, revisionOn: false }] })
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Revision' }))
+
+    const posts = api.calls.filter((c) => c.method === 'POST')
+    expect(posts.map((c) => [c.url, JSON.parse(c.body!)])).toEqual([
+      ['/api/resources/1/learning', { on: true }],
+      ['/api/resources/1/revision', { on: false }],
+    ])
+    expect(await screen.findByRole('checkbox', { name: 'Revision' })).not.toBeChecked()
   })
 })

@@ -102,4 +102,34 @@ describe('HomePage', () => {
     expect(await screen.findByText('AI service unreachable — press Retry in Library.')).toBeInTheDocument()
     expect(screen.getByText('Still reading your book… more items will appear.')).toBeInTheDocument()
   })
+
+  it('skipMovesItemAndShowsSkippedNote', async () => {
+    const api = mockFetch([
+      { path: '/api/progress', body: progress },
+      { path: '/api/queue', body: { items: [item(7, 'Base62 conversion', 119, 124), item(8, 'Hash collisions', 125, 131)], remaining: 2, preparing: false, skipped: 0, allPaused: false } },
+      { method: 'POST', path: '/api/map-items/7/skip', status: 204 },
+    ])
+    renderHome()
+    const skip = await screen.findByRole('button', { name: 'Skip for now' })
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Hide' })).not.toBeInTheDocument()
+    api.add({ path: '/api/queue', body: { items: [item(8, 'Hash collisions', 125, 131)], remaining: 1, preparing: false, skipped: 1, allPaused: false } })
+
+    await userEvent.click(skip)
+
+    expect(api.calls.some((c) => c.method === 'POST' && c.url === '/api/map-items/7/skip')).toBe(true)
+    expect(await screen.findByText(/1 skipped section — it comes back after you learn 10 more/)).toBeInTheDocument()
+  })
+
+  it('allPausedPointsToLibrary', async () => {
+    mockFetch([
+      { path: '/api/progress', body: progress },
+      { path: '/api/queue', body: { items: [], remaining: 0, preparing: false, skipped: 0, allPaused: true } },
+    ])
+
+    renderHome()
+
+    expect(await screen.findByText(/Learning is paused for all your books/)).toBeInTheDocument()
+    expect(screen.queryByText(/covered everything/)).not.toBeInTheDocument()
+  })
 })

@@ -28,6 +28,12 @@ public class Resource {
     private String failureReason;
     private int totalPages;
     private Instant createdAt;
+    /** Off: the book is not in Up next. New books start off; the column default switches on books added before this existed. */
+    @Column(columnDefinition = "boolean default true not null")
+    private boolean learningOn;
+    /** Off: none of the book's questions or problems come up in revision. */
+    @Column(columnDefinition = "boolean default true not null")
+    private boolean revisionOn = true;
 
     protected Resource() {
     }
@@ -51,4 +57,8 @@ public class Resource {
     public int getTotalPages() { return totalPages; }
     public void setTotalPages(int totalPages) { this.totalPages = totalPages; }
     public Instant getCreatedAt() { return createdAt; }
+    public boolean isLearningOn() { return learningOn; }
+    public void setLearningOn(boolean learningOn) { this.learningOn = learningOn; }
+    public boolean isRevisionOn() { return revisionOn; }
+    public void setRevisionOn(boolean revisionOn) { this.revisionOn = revisionOn; }
 }

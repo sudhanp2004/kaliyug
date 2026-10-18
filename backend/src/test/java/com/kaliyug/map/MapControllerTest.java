@@ -138,4 +138,13 @@ class MapControllerTest {
         Instant due = problems.findById(problem.getId()).orElseThrow().getDueAt();
         assertTrue(due != null && near(due, Instant.now().plus(Duration.ofDays(1))), "due " + due);
     }
+
+    @Test
+    void skipEndpointMovesItemOutOfUpNext() throws Exception {
+        mvc.perform(post("/api/map-items/{id}/skip", first.getId())).andExpect(status().isNoContent());
+
+        mvc.perform(get("/api/queue"))
+                .andExpect(jsonPath("$.items[0].title").value("Step 2"))
+                .andExpect(jsonPath("$.skipped").value(1));
+    }
 }

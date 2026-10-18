@@ -12,5 +12,7 @@ public interface MapItemRepository extends JpaRepository<MapItem, Long> {
 
     long countByChapterResourceId(Long resourceId);
 
+    long countByLearnedAtIsNotNull();
+
     long countByChapterResourceIdAndIngestedTrue(Long resourceId);
 }

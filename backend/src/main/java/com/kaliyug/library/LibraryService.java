@@ -38,7 +38,7 @@ import com.kaliyug.ingest.PdfBook;
 public class LibraryService {
 
     public record ResourceDto(Long id, String title, ResourceStatus status, String failureReason, int totalPages,
-            long itemsReady, long itemsTotal) {
+            long itemsReady, long itemsTotal, boolean learningOn, boolean revisionOn) {
     }
 
     private static final int MAX_METADATA_TITLE = 60;
@@ -66,7 +66,8 @@ public class LibraryService {
     public List<ResourceDto> list() {
         return resources.findAll().stream()
                 .map(r -> new ResourceDto(r.getId(), r.getTitle(), r.getStatus(), r.getFailureReason(), r.getTotalPages(),
-                        mapItems.countByChapterResourceIdAndIngestedTrue(r.getId()), mapItems.countByChapterResourceId(r.getId())))
+                        mapItems.countByChapterResourceIdAndIngestedTrue(r.getId()), mapItems.countByChapterResourceId(r.getId()),
+                        r.isLearningOn(), r.isRevisionOn()))
                 .toList();
     }
 
@@ -115,8 +116,24 @@ public class LibraryService {
         }
     }
 
+    public void setLearning(Long id, boolean on) {
+        Resource r = find(id);
+        r.setLearningOn(on);
+        resources.save(r);
+    }
+
+    public void setRevision(Long id, boolean on) {
+        Resource r = find(id);
+        r.setRevisionOn(on);
+        resources.save(r);
+    }
+
+    private Resource find(Long id) {
+        return resources.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No such book"));
+    }
+
     public void retry(Long id) {
-        Resource r = resources.findById(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No such book"));
+        Resource r = find(id);
         if (r.getStatus() != ResourceStatus.FAILED) {
             throw new IllegalArgumentException("Only a book that failed can be retried.");
         }
@@ -137,7 +154,8 @@ public class LibraryService {
             Files.copy(source, stored, StandardCopyOption.REPLACE_EXISTING);
             Resource r = resources.save(new Resource(title(stored, fileName), stored.toString(), sha, clock.instant()));
             ingestion.start(r.getId());
-            return new ResourceDto(r.getId(), r.getTitle(), r.getStatus(), r.getFailureReason(), r.getTotalPages(), 0, 0);
+            return new ResourceDto(r.getId(), r.getTitle(), r.getStatus(), r.getFailureReason(), r.getTotalPages(), 0, 0,
+                    r.isLearningOn(), r.isRevisionOn());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

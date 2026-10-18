@@ -34,8 +34,15 @@ import com.kaliyug.revision.Scheduler;
 @Service
 public class QueueService {
 
-    public record QueueDto(List<QueueItemDto> items, int remaining, boolean preparing) {
+    /**
+     * @param skipped   sections skipped and not yet back in the list
+     * @param allPaused there are books, but learning is switched off for all of them
+     */
+    public record QueueDto(List<QueueItemDto> items, int remaining, boolean preparing, int skipped, boolean allPaused) {
     }
+
+    /** A skipped section comes back to the top after this many more sections are marked learned. */
+    static final int SKIP_RETURNS_AFTER = 10;
 
     public record QueueItemDto(Long id, String title, String bookTitle, String chapterTitle, int startPage, int endPage) {
 
@@ -47,7 +54,8 @@ public class QueueService {
     }
 
     /** A book's remaining items, grouped by chapter, plus what decides its turn in the rotation. */
-    private record BookQueue(Resource book, Deque<List<MapItem>> chapters, boolean midChapter, Instant lastStudied) {
+    private record BookQueue(Resource book, Deque<List<MapItem>> chapters, boolean midChapter, Instant lastStudied,
+            List<MapItem> skipped) {
     }
 
     private final ResourceRepository resources;
@@ -71,9 +79,17 @@ public class QueueService {
 
     @Transactional(readOnly = true)
     public QueueDto queue(int limit) {
+        long learnedCount = mapItems.countByLearnedAtIsNotNull();
+        List<Resource> all = resources.findAll();
         List<BookQueue> books = new ArrayList<>();
-        for (Resource book : resources.findAll()) {
-            books.add(bookQueue(book));
+        int skippedInPausedBooks = 0;
+        for (Resource book : all) {
+            BookQueue b = bookQueue(book);
+            if (book.isLearningOn()) {
+                books.add(b);
+            } else {
+                skippedInPausedBooks += b.skipped().size();
+            }
         }
         books.sort(Comparator.comparing((BookQueue b) -> !b.midChapter())
                 .thenComparing(BookQueue::lastStudied, Comparator.nullsFirst(Comparator.naturalOrder()))
@@ -91,13 +107,25 @@ public class QueueService {
                 }
             }
         }
+
+        // Skipped sections come back on top once enough others are learned, or straight away when nothing else is left.
+        Comparator<MapItem> bySkipOrder = Comparator.comparing(MapItem::getSkippedAtLearnedCount).thenComparing(MapItem::getId);
+        List<MapItem> skipped = books.stream().flatMap(b -> b.skipped().stream()).sorted(bySkipOrder).toList();
+        List<MapItem> back = ordered.isEmpty() ? skipped
+                : skipped.stream().filter(i -> learnedCount - i.getSkippedAtLearnedCount() >= SKIP_RETURNS_AFTER).toList();
+        List<MapItem> shown = new ArrayList<>(back);
+        shown.addAll(ordered);
+
         boolean preparing = !resources.findByStatus(ResourceStatus.INGESTING).isEmpty();
-        List<QueueItemDto> items = ordered.stream().limit(limit).map(QueueItemDto::of).toList();
-        return new QueueDto(items, ordered.size(), preparing);
+        boolean allPaused = !all.isEmpty() && all.stream().noneMatch(Resource::isLearningOn);
+        int stillSkipped = skipped.size() - back.size() + skippedInPausedBooks;
+        List<QueueItemDto> items = shown.stream().limit(limit).map(QueueItemDto::of).toList();
+        return new QueueDto(items, shown.size(), preparing, stillSkipped, allPaused);
     }
 
     private BookQueue bookQueue(Resource book) {
         Deque<List<MapItem>> remaining = new ArrayDeque<>();
+        List<MapItem> skipped = new ArrayList<>();
         boolean midChapter = false;
         Instant lastStudied = null;
         boolean blocked = false;
@@ -113,6 +141,7 @@ public class QueueService {
                     lastStudied = i.getLearnedAt();
                 }
             }
+            visible.stream().filter(MapItem::isSkipped).forEach(skipped::add);
             if (blocked) {
                 continue;
             }
@@ -122,7 +151,7 @@ public class QueueService {
             }
             List<MapItem> todo = new ArrayList<>();
             for (MapItem i : visible) {
-                if (i.isLearned()) {
+                if (i.isLearned() || i.isSkipped()) {
                     continue;
                 }
                 if (!i.isIngested()) {
@@ -138,7 +167,7 @@ public class QueueService {
                 midChapter = true;
             }
         }
-        return new BookQueue(book, remaining, midChapter, lastStudied);
+        return new BookQueue(book, remaining, midChapter, lastStudied, skipped);
     }
 
     @Transactional
@@ -149,10 +178,20 @@ public class QueueService {
         }
         Instant now = clock.instant();
         item.setLearnedAt(now);
+        item.setSkippedAtLearnedCount(null);
         for (Point p : points.findByMapItemId(itemId)) {
             scheduler.onLearned(p);
         }
         scheduleProblemIfChapterDone(item.getChapter().getId());
+    }
+
+    /** Not now: the section leaves Up next and comes back after {@link #SKIP_RETURNS_AFTER} more are learned. */
+    @Transactional
+    public void skip(Long itemId) {
+        MapItem item = find(itemId);
+        if (!item.isLearned()) {
+            item.setSkippedAtLearnedCount((int) mapItems.countByLearnedAtIsNotNull());
+        }
     }
 
     @Transactional

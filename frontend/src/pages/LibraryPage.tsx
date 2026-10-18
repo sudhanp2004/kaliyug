@@ -6,6 +6,8 @@ import {
   importBook,
   pagesLabel,
   retryResource,
+  setLearning,
+  setRevision,
   unhideItem,
   uploadBook,
   type QueueItem,
@@ -88,6 +90,24 @@ export default function LibraryPage() {
                   {b.status === 'FAILED' && <div className="small status-FAILED">{b.failureReason}</div>}
                 </div>
                 <div className="row">
+                  <label className="row small" title="Off: this book is left out of Up next">
+                    <input
+                      type="checkbox"
+                      checked={b.learningOn}
+                      disabled={busy}
+                      onChange={(e) => act(() => setLearning(b.id, e.target.checked))}
+                    />
+                    Learning
+                  </label>
+                  <label className="row small" title="Off: no revision questions from this book">
+                    <input
+                      type="checkbox"
+                      checked={b.revisionOn}
+                      disabled={busy}
+                      onChange={(e) => act(() => setRevision(b.id, e.target.checked))}
+                    />
+                    Revision
+                  </label>
                   <span className={`small status-${b.status}`}>{statusText(b)}</span>
                   {b.status === 'FAILED' && (
                     <button className="button-secondary" disabled={busy} onClick={() => act(() => retryResource(b.id))}>
@@ -126,10 +146,10 @@ export default function LibraryPage() {
       </section>
 
       <section className="card">
-        <h2 style={{ margin: 0 }}>Hidden items</h2>
+        <h2 style={{ margin: 0 }}>Removed sections</h2>
         {hidden.length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
-            Nothing hidden.
+            Nothing removed.
           </p>
         ) : (
           <div>

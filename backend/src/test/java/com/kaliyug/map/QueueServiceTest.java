@@ -122,4 +122,81 @@ class QueueServiceTest {
         assertEquals(a1.getStartPage(), first.startPage());
         assertEquals(3, queue.queue(1).remaining());
     }
+
+    private void learnOther(int count) {
+        Chapter extra = fx.chapter(fx.book("Other"), 1, "Other ch1", ChapterKind.CONCEPT);
+        for (int i = 0; i < count; i++) {
+            learned(fx.item(extra, i, "o" + i));
+        }
+    }
+
+    @Test
+    void bookWithLearningOffIsNotInTheQueue() {
+        bookA.setLearningOn(false);
+        resources.save(bookA);
+        addBookB();
+
+        assertEquals(List.of("b1", "b2", "b3"), titles());
+    }
+
+    @Test
+    void allBooksPausedIsReported() {
+        bookA.setLearningOn(false);
+        resources.save(bookA);
+
+        var dto = queue.queue(20);
+        assertTrue(dto.items().isEmpty());
+        assertTrue(dto.allPaused());
+    }
+
+    @Test
+    void skippedItemLeavesTheQueueAndReturnsOnTopAfterTenLearned() {
+        queue.skip(a1.getId());
+        assertEquals(List.of("a2", "a3"), titles());
+        assertEquals(1, queue.queue(20).skipped());
+
+        learnOther(9);
+        assertEquals(List.of("a2", "a3"), titles());
+
+        learnOther(1);
+        assertEquals(List.of("a1", "a2", "a3"), titles());
+        assertEquals(0, queue.queue(20).skipped());
+    }
+
+    @Test
+    void skippingAReturnedItemSendsItAwayAgain() {
+        queue.skip(a1.getId());
+        learnOther(10);
+        queue.skip(a1.getId());
+
+        assertEquals(List.of("a2", "a3"), titles());
+    }
+
+    @Test
+    void skippedItemsComeBackWhenNothingElseIsLeft() {
+        queue.skip(a1.getId());
+        learned(a2);
+        learned(a3);
+
+        assertEquals(List.of("a1"), titles());
+    }
+
+    @Test
+    void skippedItemOfAPausedBookWaits() {
+        queue.skip(a1.getId());
+        learnOther(10);
+        bookA.setLearningOn(false);
+        resources.save(bookA);
+
+        assertTrue(titles().stream().noneMatch(t -> t.startsWith("a")));
+        assertEquals(1, queue.queue(20).skipped(), "still reported so it isn't forgotten");
+    }
+
+    @Test
+    void learningASkippedItemClearsTheSkip() {
+        queue.skip(a1.getId());
+        queue.markLearned(a1.getId());
+
+        assertEquals(0, queue.queue(20).skipped());
+    }
 }

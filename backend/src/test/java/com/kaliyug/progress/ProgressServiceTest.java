@@ -35,6 +35,7 @@ class ProgressServiceTest {
     @Autowired Fixtures fx;
     @Autowired AttemptRepository attempts;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.kaliyug.domain.ResourceRepository resources;
 
     private final Instant now = Instant.now();
     private Point a;
@@ -95,5 +96,21 @@ class ProgressServiceTest {
     @Test
     void chapterWithAllPointsKnownIsSolid() {
         assertEquals(List.of("Chapter 1"), progress.progress().wins().solidChapters());
+    }
+
+    @Test
+    void dueCountSkipsBooksWithRevisionOff() {
+        a.setDueAt(Instant.now().minus(Duration.ofHours(1)));
+        fx.save(a);
+        jdbc.update("update map_item set learned_at = ? where id = (select map_item_id from point where id = ?)",
+                java.sql.Timestamp.from(Instant.now()), a.getId());
+        assertEquals(2, progress.progress().dueCount(), "a and b share the learned section and are both overdue");
+
+        var book = resources.findAll().get(0);
+        book.setRevisionOn(false);
+        resources.save(book);
+
+        assertEquals(0, progress.progress().dueCount());
+        assertEquals(4, progress.progress().overall().total(), "paused books still count towards progress");
     }
 }

@@ -42,6 +42,7 @@ public class Fixtures {
     public Resource book(String title) {
         Resource r = new Resource(title, "unused.pdf", UUID.randomUUID().toString(), Instant.now());
         r.setStatus(ResourceStatus.READY);
+        r.setLearningOn(true);
         return resources.save(r);
     }
 

@@ -26,6 +26,8 @@ public class MapItem {
     private boolean hidden;
     /** Null while the item is still queued. */
     private Instant learnedAt;
+    /** How many items had been learned when this one was skipped; null when not skipped. */
+    private Integer skippedAtLearnedCount;
 
     protected MapItem() {
     }
@@ -51,4 +53,7 @@ public class MapItem {
     public Instant getLearnedAt() { return learnedAt; }
     public void setLearnedAt(Instant learnedAt) { this.learnedAt = learnedAt; }
     public boolean isLearned() { return learnedAt != null; }
+    public Integer getSkippedAtLearnedCount() { return skippedAtLearnedCount; }
+    public void setSkippedAtLearnedCount(Integer count) { this.skippedAtLearnedCount = count; }
+    public boolean isSkipped() { return skippedAtLearnedCount != null && !isLearned(); }
 }
