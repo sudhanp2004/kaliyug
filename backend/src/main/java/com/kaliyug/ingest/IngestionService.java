@@ -25,13 +25,9 @@ import com.kaliyug.domain.MapItemRepository;
 import com.kaliyug.domain.PageText;
 import com.kaliyug.domain.PageTextRepository;
 import com.kaliyug.domain.Point;
-import com.kaliyug.domain.PointKind;
 import com.kaliyug.domain.PointRepository;
 import com.kaliyug.domain.Problem;
 import com.kaliyug.domain.ProblemRepository;
-import com.kaliyug.domain.Question;
-import com.kaliyug.domain.QuestionRepository;
-import com.kaliyug.domain.QuestionType;
 import com.kaliyug.domain.Resource;
 import com.kaliyug.domain.ResourceRepository;
 import com.kaliyug.domain.ResourceStatus;
@@ -39,7 +35,6 @@ import com.kaliyug.ingest.AiContracts.ChapterKindItem;
 import com.kaliyug.ingest.AiContracts.ChapterKinds;
 import com.kaliyug.ingest.AiContracts.ExtractedPoint;
 import com.kaliyug.ingest.AiContracts.ExtractedPoints;
-import com.kaliyug.ingest.AiContracts.ExtractedQuestion;
 import com.kaliyug.ingest.AiContracts.ProblemSpec;
 import com.kaliyug.ingest.AiContracts.RefComponent;
 import com.kaliyug.ingest.AiContracts.RefDecision;
@@ -77,7 +72,6 @@ public class IngestionService {
     private final ChapterRepository chapters;
     private final MapItemRepository mapItems;
     private final PointRepository points;
-    private final QuestionRepository questions;
     private final ProblemRepository problems;
     private final JsonLlm ai;
     private final Prompts prompts;
@@ -85,21 +79,24 @@ public class IngestionService {
     private final TransactionTemplate tx;
     private final ExecutorService executor;
     private final QueueService queue;
+    private final BookText bookText;
+    private final PointWriter pointWriter;
     private Duration retryDelay = Duration.ofSeconds(60);
     private int maxInputChars = DEFAULT_MAX_INPUT_CHARS;
     private int fillerRecheckMinPages = DEFAULT_FILLER_RECHECK_MIN_PAGES;
 
     public IngestionService(ResourceRepository resources, PageTextRepository pages, ChapterRepository chapters,
-            MapItemRepository mapItems, PointRepository points, QuestionRepository questions,
+            MapItemRepository mapItems, PointRepository points,
             ProblemRepository problems, JsonLlm ai, Prompts prompts, ObjectMapper mapper, TransactionTemplate tx,
-            ExecutorService ingestionExecutor, QueueService queue) {
+            ExecutorService ingestionExecutor, QueueService queue, BookText bookText, PointWriter pointWriter) {
         this.queue = queue;
+        this.bookText = bookText;
+        this.pointWriter = pointWriter;
         this.resources = resources;
         this.pages = pages;
         this.chapters = chapters;
         this.mapItems = mapItems;
         this.points = points;
-        this.questions = questions;
         this.problems = problems;
         this.ai = ai;
         this.prompts = prompts;
@@ -236,7 +233,7 @@ public class IngestionService {
     private Map<Integer, ChapterKind> askKinds(Long resourceId, List<Chapter> list, int previewChars) {
         StringBuilder user = new StringBuilder("Chapters (index | title | start of the chapter):\n");
         for (Chapter c : list) {
-            String start = pageText(resourceId, c.getStartPage(), Math.min(c.getEndPage(), c.getStartPage() + 2));
+            String start = bookText.plain(resourceId, c.getStartPage(), Math.min(c.getEndPage(), c.getStartPage() + 2));
             String preview = start.substring(0, Math.min(previewChars, start.length())).replaceAll("\\s+", " ");
             user.append(c.getOrderIndex()).append(" | ").append(c.getTitle()).append(" | ").append(preview).append('\n');
         }
@@ -252,7 +249,7 @@ public class IngestionService {
 
     // Step 4
     private void splitSections(Long resourceId, Chapter chapter) {
-        String text = compact(markedPages(resourceId, chapter.getStartPage(), chapter.getEndPage()));
+        String text = compact(bookText.marked(resourceId, chapter.getStartPage(), chapter.getEndPage()));
         String user = "Chapter: " + chapter.getTitle() + " (pages " + chapter.getStartPage() + "-" + chapter.getEndPage() + ")\n\n" + text;
         List<Section> sections = nullSafe(ai.ask(prompts.get("split-sections"), user, Sections.class).sections());
         if (!Grounding.validSections(sections, chapter.getStartPage(), chapter.getEndPage())) {
@@ -282,45 +279,21 @@ public class IngestionService {
 
     // Step 5
     private void extractPoints(Long resourceId, MapItem item) {
-        String plain = pageText(resourceId, item.getStartPage(), item.getEndPage());
+        String plain = bookText.plain(resourceId, item.getStartPage(), item.getEndPage());
         String header = "Section: " + item.getTitle() + " (pages " + item.getStartPage() + "-" + item.getEndPage() + ")\n\n";
         List<ExtractedPoint> extracted = new ArrayList<>();
-        for (String chunk : chunks(markedPages(resourceId, item.getStartPage(), item.getEndPage()))) {
-            extracted.addAll(nullSafe(ai.ask(prompts.get("extract-points"), header + chunk, ExtractedPoints.class).points()));
+        for (BookText.Chunk chunk : bookText.chunks(resourceId, item.getStartPage(), item.getEndPage(), maxInputChars)) {
+            extracted.addAll(nullSafe(ai.ask(prompts.get("extract-points"), header + chunk.text(), ExtractedPoints.class).points()));
         }
         int[] kept = {0};
         tx.executeWithoutResult(s -> {
             points.deleteByMapItemId(item.getId());
             MapItem fresh = mapItems.findById(item.getId()).orElseThrow();
-            for (ExtractedPoint e : extracted) {
-                if (!grounded(e, fresh, plain)) {
-                    continue;
-                }
-                PointKind kind = e.kind() == null ? PointKind.CONCEPT : e.kind();
-                List<ExtractedQuestion> usable = nullSafe(e.questions()).stream()
-                        .filter(q -> notBlank(q.prompt()) && notBlank(q.modelAnswer()))
-                        .toList();
-                if (usable.isEmpty()) {
-                    continue;
-                }
-                Point point = points.save(new Point(fresh, kind, e.text().trim(), e.firstPage(), e.lastPage(), e.evidence().trim()));
-                for (ExtractedQuestion q : usable) {
-                    QuestionType type = q.type() != null ? q.type() : kind == PointKind.NUMBER ? QuestionType.QUICKFIRE : QuestionType.SHORT;
-                    questions.save(new Question(point, type, q.prompt().trim(), q.modelAnswer().trim()));
-                }
-                kept[0]++;
-            }
+            kept[0] = pointWriter.saveGrounded(fresh, extracted, plain).size();
             fresh.setIngested(true);
             mapItems.save(fresh);
         });
         log.info("Section '{}': kept {} of {} points", item.getTitle(), kept[0], extracted.size());
-    }
-
-    private static boolean grounded(ExtractedPoint e, MapItem item, String itemText) {
-        return notBlank(e.text())
-                && e.firstPage() >= item.getStartPage() && e.lastPage() <= item.getEndPage()
-                && e.firstPage() <= e.lastPage()
-                && Grounding.evidenceFound(e.evidence(), itemText);
     }
 
     // Step 6
@@ -334,9 +307,9 @@ public class IngestionService {
         for (Point p : chapterPoints) {
             user.append(p.getId()).append(" | ").append(p.getText()).append(" | ").append(pagesLabel(p)).append('\n');
         }
-        List<String> opening = chunks(markedPages(resourceId, chapter.getStartPage(), chapter.getEndPage()),
+        List<BookText.Chunk> opening = bookText.chunks(resourceId, chapter.getStartPage(), chapter.getEndPage(),
                 Math.max(maxInputChars - user.length(), maxInputChars / 4));
-        user.append("\nChapter text (opening pages):\n").append(opening.isEmpty() ? "" : opening.get(0));
+        user.append("\nChapter text (opening pages):\n").append(opening.isEmpty() ? "" : opening.get(0).text());
         ProblemSpec spec = ai.ask(prompts.get("generate-problem"), user.toString(), ProblemSpec.class);
 
         Set<Long> used = new HashSet<>();
@@ -367,43 +340,6 @@ public class IngestionService {
         return chapters.findByResourceIdOrderByOrderIndex(resourceId).stream()
                 .filter(c -> c.getKind() != ChapterKind.FILLER)
                 .toList();
-    }
-
-    private String pageText(Long resourceId, int from, int to) {
-        return pages.findByResourceIdAndPageNumberBetweenOrderByPageNumber(resourceId, from, to).stream()
-                .map(PageText::getText)
-                .collect(Collectors.joining("\n"));
-    }
-
-    private List<String> markedPages(Long resourceId, int from, int to) {
-        return pages.findByResourceIdAndPageNumberBetweenOrderByPageNumber(resourceId, from, to).stream()
-                .map(p -> "=== PAGE " + p.getPageNumber() + " ===\n" + p.getText())
-                .toList();
-    }
-
-    private List<String> chunks(List<String> markedPages) {
-        return chunks(markedPages, maxInputChars);
-    }
-
-    /** Packs whole pages into chunks of at most {@code budget} characters; a page longer than the budget is cut. */
-    static List<String> chunks(List<String> markedPages, int budget) {
-        List<String> chunks = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        for (String page : markedPages) {
-            String fitted = page.length() > budget ? page.substring(0, budget) : page;
-            if (current.length() > 0 && current.length() + 1 + fitted.length() > budget) {
-                chunks.add(current.toString());
-                current.setLength(0);
-            }
-            if (current.length() > 0) {
-                current.append('\n');
-            }
-            current.append(fitted);
-        }
-        if (current.length() > 0) {
-            chunks.add(current.toString());
-        }
-        return chunks;
     }
 
     /** The whole chapter when it fits; otherwise the start of every page, so headings and page markers survive. */
