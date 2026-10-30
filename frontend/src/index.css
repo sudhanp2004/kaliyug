@@ -484,3 +484,119 @@ textarea {
 .status-FAILED {
   color: var(--bad);
 }
+
+/* Lessons */
+.lesson h3 {
+  margin: 1.1rem 0 0.35rem;
+  font-size: 1rem;
+}
+
+.lesson p {
+  margin: 0.35rem 0;
+  line-height: 1.6;
+}
+
+.lesson .lesson-part {
+  margin-top: 1.6rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.lesson code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--surface-2);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+}
+
+.lesson-code {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  overflow-x: auto;
+  line-height: 1.45;
+}
+
+.lesson-code code {
+  background: none;
+  padding: 0;
+}
+
+.diagram {
+  margin: 0.8rem 0;
+  padding: 0.6rem;
+  background: var(--surface-2);
+  border-radius: 8px;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.builds-on {
+  margin: 0.9rem 0;
+  padding: 0.6rem 0.8rem;
+  background: var(--accent-soft);
+  border-radius: 8px;
+  font-size: 0.92rem;
+}
+
+.builds-on ul {
+  margin: 0.3rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.remember {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.remember li {
+  margin: 0.35rem 0;
+}
+
+.remember li p {
+  display: inline;
+}
+
+.notice {
+  margin: 0.7rem 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--good-soft);
+  border-radius: 8px;
+}
+
+.pill {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.lesson-links {
+  margin-top: 1rem;
+  font-size: 0.92rem;
+}
+
+.lesson-footer {
+  margin: 0.5rem 0 2rem;
+}
+
+.quick-check {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
