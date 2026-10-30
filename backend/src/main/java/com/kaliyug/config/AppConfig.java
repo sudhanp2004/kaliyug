@@ -62,6 +62,16 @@ public class AppConfig {
         });
     }
 
+    /** Lessons get their own thread so they don't wait behind a book being read. */
+    @Bean(destroyMethod = "shutdownNow")
+    ExecutorService lessonExecutor() {
+        return Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "lessons");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
     @Bean
     JsonLlm jsonLlm(LlmClient llm, ObjectMapper mapper) {
         return new JsonLlm(llm, mapper);

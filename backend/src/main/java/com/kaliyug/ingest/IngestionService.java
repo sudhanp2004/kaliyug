@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
@@ -88,7 +89,7 @@ public class IngestionService {
     public IngestionService(ResourceRepository resources, PageTextRepository pages, ChapterRepository chapters,
             MapItemRepository mapItems, PointRepository points,
             ProblemRepository problems, JsonLlm ai, Prompts prompts, ObjectMapper mapper, TransactionTemplate tx,
-            ExecutorService ingestionExecutor, QueueService queue, BookText bookText, PointWriter pointWriter) {
+            @Qualifier("ingestionExecutor") ExecutorService ingestionExecutor, QueueService queue, BookText bookText, PointWriter pointWriter) {
         this.queue = queue;
         this.bookText = bookText;
         this.pointWriter = pointWriter;
