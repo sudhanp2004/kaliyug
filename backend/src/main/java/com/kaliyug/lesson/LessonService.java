@@ -5,12 +5,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.RejectedExecutionException;
 
 import org.slf4j.Logger;
@@ -89,7 +91,12 @@ public class LessonService {
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
     private final Clock clock;
+    /** Sections whose lesson is being written or waiting to be. */
     private final Set<Long> running = ConcurrentHashMap.newKeySet();
+    /** Order to write them in: the lesson the user opened goes first, prepared-ahead ones after. */
+    private final Deque<Long> waiting = new LinkedBlockingDeque<>();
+    /** Sections whose "Builds on" links are being re-picked. */
+    private final Set<Long> linking = ConcurrentHashMap.newKeySet();
     private Executor executor;
 
     public LessonService(MapItemRepository mapItems, LessonRepository lessons, PointRepository points,
@@ -114,6 +121,8 @@ public class LessonService {
     void setExecutor(Executor executor) {
         this.executor = executor;
         running.clear();
+        waiting.clear();
+        linking.clear();
     }
 
     public LessonDto open(Long mapItemId) {
@@ -144,14 +153,17 @@ public class LessonService {
             if (!exists) {
                 ensure(mapItemId, true);
             } else {
-                start(mapItemId);
+                start(mapItemId, true);
             }
         }
         return view(mapItemId);
     }
 
     public LessonDto view(Long mapItemId) {
-        refreshLinksIfStale(mapItemId);
+        visibleItem(mapItemId);
+        if (linksStale(mapItemId)) {
+            refreshLinksLater(mapItemId);
+        }
         return tx.execute(s -> {
             MapItem item = visibleItem(mapItemId);
             Lesson lesson = lessons.findByMapItemId(mapItemId)
@@ -178,7 +190,7 @@ public class LessonService {
             status = create(mapItemId);
         }
         if (status == LessonStatus.PREPARING) {
-            start(mapItemId);
+            start(mapItemId, retryFailed);
         }
     }
 
@@ -195,24 +207,68 @@ public class LessonService {
         }
     }
 
-    private void start(Long mapItemId) {
+    /** Queues the lesson for writing; {@code urgent} puts it ahead of lessons prepared in advance. */
+    private void start(Long mapItemId, boolean urgent) {
         if (!running.add(mapItemId)) {
+            if (urgent && waiting.remove(mapItemId)) {
+                waiting.addFirst(mapItemId);
+            }
+            return;
+        }
+        if (urgent) {
+            waiting.addFirst(mapItemId);
+        } else {
+            waiting.addLast(mapItemId);
+        }
+        try {
+            executor.execute(this::writeNext);
+        } catch (RejectedExecutionException e) {
+            waiting.remove(mapItemId);
+            running.remove(mapItemId);
+        }
+    }
+
+    /** One queued task per waiting lesson; each writes whichever lesson is first in line when it runs. */
+    private void writeNext() {
+        Long mapItemId = waiting.pollFirst();
+        if (mapItemId == null) {
+            return;
+        }
+        try {
+            generator.generate(mapItemId);
+            refreshLinksIfStale(mapItemId);
+        } catch (RuntimeException e) {
+            log.error("Lesson for section {} failed", mapItemId, e);
+            markFailed(mapItemId);
+        } finally {
+            running.remove(mapItemId);
+        }
+    }
+
+    private void refreshLinksLater(Long mapItemId) {
+        if (!linking.add(mapItemId)) {
             return;
         }
         try {
             executor.execute(() -> {
                 try {
-                    generator.generate(mapItemId);
+                    refreshLinksIfStale(mapItemId);
                 } catch (RuntimeException e) {
-                    log.error("Lesson for section {} failed", mapItemId, e);
-                    markFailed(mapItemId);
+                    log.warn("Couldn't refresh links for section {}", mapItemId, e);
                 } finally {
-                    running.remove(mapItemId);
+                    linking.remove(mapItemId);
                 }
             });
         } catch (RejectedExecutionException e) {
-            running.remove(mapItemId);
+            linking.remove(mapItemId);
         }
+    }
+
+    private boolean linksStale(Long mapItemId) {
+        return Boolean.TRUE.equals(tx.execute(s -> lessons.findByMapItemId(mapItemId)
+                .filter(l -> l.getStatus() == LessonStatus.READY && l.getContentJson() != null)
+                .map(l -> !Long.valueOf(mapItems.countByLearnedAtIsNotNull()).equals(l.getLinksAtLearnedCount()))
+                .orElse(false)));
     }
 
     private void markFailed(Long mapItemId) {

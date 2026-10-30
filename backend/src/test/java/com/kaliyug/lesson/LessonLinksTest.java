@@ -18,6 +18,8 @@ import com.kaliyug.domain.Lesson;
 import com.kaliyug.domain.LessonRepository;
 import com.kaliyug.domain.LessonStatus;
 import com.kaliyug.domain.MapItem;
+import com.kaliyug.domain.PageText;
+import com.kaliyug.domain.PageTextRepository;
 import com.kaliyug.domain.PointKind;
 import com.kaliyug.domain.Resource;
 import com.kaliyug.lesson.LessonContracts.Block;
@@ -35,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
 @SpringBootTest
@@ -49,6 +52,7 @@ class LessonLinksTest {
     @Autowired Fixtures fx;
     @Autowired ObjectMapper mapper;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PageTextRepository pages;
 
     MapItem cur;
     MapItem a1;
@@ -142,5 +146,44 @@ class LessonLinksTest {
                 .andExpect(jsonPath("$.buildsOn.length()").value(0));
         llm.reply(linksA1);
         mvc.perform(get("/api/map-items/{id}/lesson", cur.getId())).andExpect(jsonPath("$.buildsOn.length()").value(1));
+    }
+
+    private static void runAll(List<Runnable> submitted) {
+        while (!submitted.isEmpty()) {
+            submitted.remove(0).run();
+        }
+    }
+
+    @Test
+    void viewDoesNotWaitForTheLinksAi() throws Exception {
+        List<Runnable> submitted = new java.util.ArrayList<>();
+        service.setExecutor(submitted::add);
+        mvc.perform(get("/api/map-items/{id}/lesson", cur.getId()))
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.buildsOn.length()").value(0));
+        assertTrue(llm.calls.isEmpty());
+        assertEquals(1, submitted.size());
+        llm.reply(linksA1);
+        runAll(submitted);
+        mvc.perform(get("/api/map-items/{id}/lesson", cur.getId())).andExpect(jsonPath("$.buildsOn.length()").value(1));
+        assertTrue(submitted.isEmpty());
+    }
+
+    @Test
+    void linksArePickedWhenTheLessonIsGenerated() throws Exception {
+        b1.setHidden(true);
+        fx.save(b1);
+        MapItem fresh = fx.item(cur.getChapter(), 3, "Cache eviction");
+        pages.save(new PageText(cur.getChapter().getResource(), fresh.getStartPage(),
+                "Least recently used is the most common eviction policy for caches. ".repeat(5)));
+        List<Runnable> submitted = new java.util.ArrayList<>();
+        service.setExecutor(submitted::add);
+        mvc.perform(post("/api/map-items/{id}/lesson/open", fresh.getId()));
+        llm.reply(LessonControllerTest.lessonJsonFor(mapper, fresh.getStartPage())).reply("{\"points\":[]}").reply(linksA1);
+        runAll(submitted);
+        mvc.perform(get("/api/map-items/{id}/lesson", fresh.getId()))
+                .andExpect(jsonPath("$.status").value("READY"))
+                .andExpect(jsonPath("$.buildsOn.length()").value(1));
+        assertTrue(submitted.isEmpty());
     }
 }

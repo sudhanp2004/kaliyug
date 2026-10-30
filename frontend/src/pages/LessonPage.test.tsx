@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { GradeResult, Lesson, Verdict } from '../api'
 import { mockFetch } from '../test/mockFetch'
@@ -136,5 +136,62 @@ describe('LessonPage', () => {
     mockFetch([{ method: 'POST', path: '/api/map-items/7/lesson/open', status: 404, body: { error: 'x' } }])
     renderPage()
     expect(await screen.findByText("This section isn't in your syllabus.")).toBeInTheDocument()
+  })
+
+  it('failedLessonStillLetsYouMarkItLearned', async () => {
+    const api = mockFetch([
+      {
+        method: 'POST',
+        path: '/api/map-items/7/lesson/open',
+        body: { ...ready, status: 'FAILED', failureReason: 'This section has almost no text the app can read (it may be mostly figures).' },
+      },
+      { method: 'POST', path: '/api/map-items/7/learned', status: 204 },
+    ])
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Mark learned without the check' }))
+    expect(await screen.findByText('Section learned — its points are now in your revision.')).toBeInTheDocument()
+    expect(api.calls.some((c) => c.method === 'POST' && c.url === '/api/map-items/7/learned')).toBe(true)
+  })
+
+  it('preparingLessonOffersSkipAndRemove', async () => {
+    mockFetch([
+      { method: 'POST', path: '/api/map-items/7/lesson/open', body: { ...ready, status: 'PREPARING' } },
+      { path: '/api/map-items/7/lesson', body: { ...ready, status: 'PREPARING' } },
+    ])
+    renderPage()
+    expect(await screen.findByText('Preparing your lesson…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Skip for now' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument()
+  })
+
+  it('slowAnswerForThePreviousLessonIsIgnored', async () => {
+    let release: (r: Response) => void = () => {}
+    const slow = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = input.toString()
+        if (url === '/api/map-items/7/lesson/open') return slow
+        if (url === '/api/map-items/5/lesson/open') return json({ ...ready, mapItemId: 5, sectionTitle: 'Database replication' })
+        return new Response('{}', { status: 500 })
+      }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/lesson/7']}>
+        <Link to="/lesson/5">go to 5</Link>
+        <Routes>
+          <Route path="/lesson/:id" element={<LessonPage pollMs={10} />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await userEvent.click(screen.getByRole('link', { name: 'go to 5' }))
+    expect(await screen.findByRole('heading', { name: 'Database replication' })).toBeInTheDocument()
+    release(json(ready))
+    await new Promise((r) => setTimeout(r, 30))
+    expect(screen.getByRole('heading', { name: 'Database replication' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Cache' })).toBeNull()
   })
 })

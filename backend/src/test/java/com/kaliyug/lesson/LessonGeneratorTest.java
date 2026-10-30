@@ -270,4 +270,16 @@ class LessonGeneratorTest {
         assertEquals(LessonStatus.FAILED, lesson().getStatus());
         assertEquals(LessonGenerator.AI_UNREACHABLE, lesson().getFailureReason());
     }
+
+    @Test
+    void coverageSkipsIdeasTheSectionAlreadyHas() {
+        String spof = "A cache server is a single point of failure unless several are used.";
+        for (int run = 0; run < 2; run++) {
+            llm.reply(lessonJson(11, List.of()));
+            llm.reply(coverage(point("Single cache server is a SPOF", 11, spof),
+                    point("Same idea again", 11, spof)));
+            generator.generate(item.getId());
+        }
+        assertEquals(2, points.findByMapItemId(item.getId()).size());   // p1 + the SPOF point, once
+    }
 }

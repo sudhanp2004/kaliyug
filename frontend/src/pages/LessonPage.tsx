@@ -43,24 +43,41 @@ export default function LessonPage({ pollMs = 2000 }: { pollMs?: number }) {
     setNotFound(false)
     setError(null)
     setPhase('reading')
-    openLesson(id).then(setLesson).catch(fail)
+    // Ignore a slow answer for a lesson the user has already left.
+    let ignore = false
+    openLesson(id)
+      .then((l) => {
+        if (!ignore) setLesson(l)
+      })
+      .catch((e) => {
+        if (!ignore) fail(e)
+      })
+    return () => {
+      ignore = true
+    }
   }, [id, fail])
 
   // While the lesson is being written, check back every pollMs.
   useEffect(() => {
-    if (lesson?.status !== 'PREPARING') return
+    if (lesson?.status !== 'PREPARING' || lesson.mapItemId !== id) return
+    let ignore = false
     const timer = setTimeout(() => {
       getLesson(id)
         .then((l) => {
+          if (ignore) return
           setLesson(l)
           setError(null)
         })
         .catch((e) => {
+          if (ignore) return
           fail(e)
           setPollTick((t) => t + 1)
         })
     }, pollMs)
-    return () => clearTimeout(timer)
+    return () => {
+      ignore = true
+      clearTimeout(timer)
+    }
   }, [id, lesson, pollMs, pollTick, fail])
 
   async function act(action: () => Promise<void>) {
@@ -132,6 +149,22 @@ export default function LessonPage({ pollMs = 2000 }: { pollMs?: number }) {
   }
 
   const pages = pagesLabel(lesson.startPage, lesson.endPage)
+  const done = (
+    <>
+      <p className="notice">{doneMessage}</p>
+      <div className="row">
+        <button className="button-primary" onClick={nextLesson}>
+          Next lesson
+        </button>
+        <Link to="/">Home</Link>
+      </div>
+    </>
+  )
+  const markLearnedLink = !lesson.learned && phase !== 'done' && (
+    <button className="link-button" onClick={learnedNow}>
+      Mark learned without the check
+    </button>
+  )
   const sideActions = (
     <>
       <button className="link-button" onClick={skip}>
@@ -153,6 +186,14 @@ export default function LessonPage({ pollMs = 2000 }: { pollMs?: number }) {
           <h2 style={{ margin: 0 }}>{lesson.sectionTitle}</h2>
           <p className="muted">Preparing your lesson…</p>
           {error && <p className="error">{error}</p>}
+          {phase === 'done' ? (
+            done
+          ) : (
+            <div className="row">
+              {markLearnedLink}
+              {sideActions}
+            </div>
+          )}
         </section>
       </main>
     )
@@ -171,12 +212,17 @@ export default function LessonPage({ pollMs = 2000 }: { pollMs?: number }) {
             Read {pages} in {lesson.bookTitle} instead.
           </p>
           {error && <p className="error">{error}</p>}
-          <div className="row">
-            <button className="button-primary" onClick={rewrite}>
-              Try again
-            </button>
-            {sideActions}
-          </div>
+          {phase === 'done' ? (
+            done
+          ) : (
+            <div className="row">
+              <button className="button-primary" onClick={rewrite}>
+                Try again
+              </button>
+              {markLearnedLink}
+              {sideActions}
+            </div>
+          )}
         </section>
       </main>
     )
@@ -280,26 +326,12 @@ export default function LessonPage({ pollMs = 2000 }: { pollMs?: number }) {
             onFinished={finishCheck}
           />
         )}
-        {phase === 'done' && (
-          <>
-            <p className="notice">{doneMessage}</p>
-            <div className="row">
-              <button className="button-primary" onClick={nextLesson}>
-                Next lesson
-              </button>
-              <Link to="/">Home</Link>
-            </div>
-          </>
-        )}
+        {phase === 'done' && done}
         {error && <p className="error">{error}</p>}
       </section>
 
       <div className="row lesson-footer">
-        {!lesson.learned && phase !== 'done' && (
-          <button className="link-button" onClick={learnedNow}>
-            Mark learned without the check
-          </button>
-        )}
+        {markLearnedLink}
         {sideActions}
         <button className="link-button" onClick={rewrite}>
           Rewrite this lesson

@@ -101,7 +101,7 @@ class LessonControllerTest {
         return Integer.parseInt(m.group(1));
     }
 
-    private Map<String, Object> part(String text, int page) {
+    private static Map<String, Object> part(String text, int page) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("text", text);
         m.put("firstPage", page);
@@ -110,6 +110,14 @@ class LessonControllerTest {
     }
 
     String lessonJsonWithIdea(String idea, int page) {
+        return lessonJsonFor(mapper, idea, page);
+    }
+
+    static String lessonJsonFor(ObjectMapper mapper, int page) {
+        return lessonJsonFor(mapper, "A cache keeps hot data in memory.", page);
+    }
+
+    static String lessonJsonFor(ObjectMapper mapper, String idea, int page) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("idea", part(idea, page));
         m.put("howItWorks", part("Check the cache first.", page));
@@ -238,5 +246,16 @@ class LessonControllerTest {
         assertTrue(lessons.findByMapItemId(i1.getId()).isPresent());
         assertTrue(lessons.findByMapItemId(i2.getId()).isPresent());
         assertTrue(lessons.findByMapItemId(i3.getId()).isEmpty());
+    }
+
+    @Test
+    void openedLessonIsWrittenBeforeOnesPreparedAhead() throws Exception {
+        List<Runnable> submitted = new ArrayList<>();
+        service.setExecutor(submitted::add);
+        mvc.perform(post("/api/lessons/prepare-upcoming"));          // i1, i2 waiting
+        mvc.perform(post("/api/map-items/{id}/lesson/open", i4.getId()));
+        queueLesson();
+        submitted.remove(0).run();
+        assertTrue(llm.calls.get(0)[1].contains("(pages 14-"), llm.calls.get(0)[1].substring(0, 60));
     }
 }

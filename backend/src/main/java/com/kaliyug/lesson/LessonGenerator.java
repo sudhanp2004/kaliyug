@@ -21,6 +21,7 @@ import com.kaliyug.domain.MapItemRepository;
 import com.kaliyug.domain.Point;
 import com.kaliyug.domain.PointKind;
 import com.kaliyug.domain.PointRepository;
+import com.kaliyug.ingest.AiContracts.ExtractedPoint;
 import com.kaliyug.ingest.AiContracts.ExtractedPoints;
 import com.kaliyug.ingest.BookText;
 import com.kaliyug.ingest.Grounding;
@@ -205,7 +206,24 @@ public class LessonGenerator {
         ExtractedPoints reply = ai.ask(prompts.get("lesson-coverage"), user, ExtractedPoints.class);
         return tx.execute(st -> {
             MapItem fresh = mapItems.findById(s.itemId()).orElseThrow();
-            List<Point> saved = pointWriter.saveGrounded(fresh, reply == null ? List.of() : reply.points(), s.plain());
+            // The AI sees only part of what the section already has, so it can repeat a known idea; skip repeats.
+            Set<String> seen = new java.util.HashSet<>();
+            for (Point p : points.findByMapItemId(s.itemId())) {
+                seen.add(Grounding.normalize(p.getText()));
+                seen.add(Grounding.normalize(p.getEvidence()));
+            }
+            List<ExtractedPoint> newIdeas = new ArrayList<>();
+            for (ExtractedPoint e : reply == null || reply.points() == null ? List.<ExtractedPoint>of() : reply.points()) {
+                String text = Grounding.normalize(e.text());
+                String evidence = Grounding.normalize(e.evidence());
+                if (seen.contains(text) || seen.contains(evidence)) {
+                    continue;
+                }
+                seen.add(text);
+                seen.add(evidence);
+                newIdeas.add(e);
+            }
+            List<Point> saved = pointWriter.saveGrounded(fresh, newIdeas, s.plain());
             if (fresh.isLearned()) {
                 saved.forEach(scheduler::onLearned);
             }
