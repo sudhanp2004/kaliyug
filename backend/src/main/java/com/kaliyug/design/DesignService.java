@@ -84,16 +84,29 @@ public class DesignService {
 
     @Transactional
     public DesignResultDto submit(Long id, DesignSubmission submission) {
+        Problem problem = find(id);
+        DesignResultDto result = grade(problem.getTitle(), requirements(problem), problem.getReferenceJson(),
+                problem.getPoints(), submission, problem);
+        scheduler.applyProblem(problem, result.points().stream().noneMatch(r -> r.verdict() == Verdict.WRONG));
+        return result;
+    }
+
+    /**
+     * Grades a canvas against a reference design and the points it should show, recording an attempt per point
+     * and rescheduling it. {@code problem} is null for a lesson's mini design. Pass managed points.
+     */
+    @Transactional
+    public DesignResultDto grade(String title, List<String> requirements, String reference, Collection<Point> designPoints,
+            DesignSubmission submission, Problem problem) {
         if (submission.nodes() == null || submission.nodes().isEmpty()) {
             throw new IllegalArgumentException("Add at least one box before submitting.");
         }
-        Problem problem = find(id);
-        Map<Long, Point> byId = problem.getPoints().stream().collect(Collectors.toMap(Point::getId, Function.identity()));
+        Map<Long, Point> byId = designPoints.stream().collect(Collectors.toMap(Point::getId, Function.identity(), (a, b) -> a));
         String design = describe(submission);
 
-        StringBuilder user = new StringBuilder("Problem: ").append(problem.getTitle()).append("\n\nRequirements:\n");
-        requirements(problem).forEach(r -> user.append("- ").append(r).append('\n'));
-        user.append("\nThe book's design (components and key decisions):\n").append(problem.getReferenceJson());
+        StringBuilder user = new StringBuilder("Problem: ").append(title).append("\n\nRequirements:\n");
+        requirements.forEach(r -> user.append("- ").append(r).append('\n'));
+        user.append("\nThe book's design (components and key decisions):\n").append(reference);
         user.append("\n\nPoints (id | text | pages):\n");
         sorted(byId.values()).forEach(p -> user.append(p.getId()).append(" | ").append(p.getText())
                 .append(" | pp. ").append(p.getFirstPage()).append('-').append(p.getLastPage()).append('\n'));
@@ -115,7 +128,6 @@ public class DesignService {
             scheduler.apply(p, verdict);
             results.add(new PointResultDto(p.getId(), p.getText(), p.getFirstPage(), p.getLastPage(), verdict, attempt.getId()));
         }
-        scheduler.applyProblem(problem, missed.isEmpty());
         return new DesignResultDto(grade.feedback() == null ? "" : grade.feedback(),
                 grade.differences() == null ? "" : grade.differences(), results);
     }

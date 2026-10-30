@@ -35,7 +35,11 @@ import com.kaliyug.domain.Question;
 import com.kaliyug.domain.QuestionRepository;
 import com.kaliyug.lesson.LessonContracts.Block;
 import com.kaliyug.lesson.LessonContracts.LessonContent;
+import com.kaliyug.design.DesignService;
+import com.kaliyug.design.DesignService.DesignResultDto;
+import com.kaliyug.design.DesignService.DesignSubmission;
 import com.kaliyug.lesson.LessonContracts.LinkChoice;
+import com.kaliyug.lesson.LessonContracts.MiniDesignSpec;
 import com.kaliyug.lesson.LessonContracts.Links;
 import com.kaliyug.lesson.LessonContracts.LinksReply;
 import com.kaliyug.llm.JsonLlm;
@@ -56,6 +60,7 @@ public class LessonService {
     static final int MAX_LINKS = 3;
     private static final int KEY_POINT_CHARS = 100;
     static final String NOT_IN_SYLLABUS = "This section isn't in your syllabus.";
+    static final String NO_MINI_DESIGN = "This lesson has no mini design.";
     static final String SOMETHING_WRONG = "Something went wrong while preparing this lesson.";
     private static final String YOUTUBE_SEARCH = "https://www.youtube.com/results?search_query=";
     private static final Logger log = LoggerFactory.getLogger(LessonService.class);
@@ -79,6 +84,7 @@ public class LessonService {
     private final QueueService queue;
     private final LessonGenerator generator;
     private final JsonLlm ai;
+    private final DesignService design;
     private final Prompts prompts;
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
@@ -87,7 +93,7 @@ public class LessonService {
     private Executor executor;
 
     public LessonService(MapItemRepository mapItems, LessonRepository lessons, PointRepository points,
-            QuestionRepository questions, QueueService queue, LessonGenerator generator, JsonLlm ai, Prompts prompts, ObjectMapper mapper,
+            QuestionRepository questions, QueueService queue, LessonGenerator generator, JsonLlm ai, Prompts prompts, DesignService design, ObjectMapper mapper,
             TransactionTemplate tx, Clock clock, @Qualifier("lessonExecutor") Executor lessonExecutor) {
         this.mapItems = mapItems;
         this.lessons = lessons;
@@ -96,6 +102,7 @@ public class LessonService {
         this.queue = queue;
         this.generator = generator;
         this.ai = ai;
+        this.design = design;
         this.prompts = prompts;
         this.mapper = mapper;
         this.tx = tx;
@@ -242,6 +249,30 @@ public class LessonService {
                 item.getStartPage(), item.getEndPage(), item.isLearned(), minutes, content.blocks(), content.diagrams(),
                 content.leftOut() == null ? "" : content.leftOut(), youtube, buildsOn(lesson), quickCheck, mini,
                 lesson.getNewPointsFound());
+    }
+
+    /** Grades the lesson's mini design against the points it should show. */
+    public DesignResultDto submitDesign(Long mapItemId, DesignSubmission submission) {
+        return tx.execute(s -> {
+            visibleItem(mapItemId);
+            Lesson lesson = lessons.findByMapItemId(mapItemId).orElse(null);
+            LessonContent content = lesson == null || lesson.getStatus() != LessonStatus.READY || lesson.getContentJson() == null
+                    ? null : mapper.readValue(lesson.getContentJson(), LessonContent.class);
+            if (content == null || content.miniDesign() == null) {
+                throw new IllegalArgumentException(NO_MINI_DESIGN);
+            }
+            MiniDesignSpec mini = content.miniDesign();
+            List<Point> designPoints = points.findAllById(mini.pointIds()).stream()
+                    .filter(p -> p.getMapItem().getId().equals(mapItemId))
+                    .toList();
+            String reference = content.blocks().stream()
+                    .flatMap(b -> java.util.stream.Stream.concat(
+                            java.util.stream.Stream.of(b.idea().text(), b.howItWorks().text()),
+                            b.remember().stream().map(LessonContracts.Remember::text)))
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            return design.grade(mini.task(), mini.requirements() == null ? List.of() : mini.requirements(), reference,
+                    designPoints, submission, null);
+        });
     }
 
     private record LinksRequest(String user, Set<Long> allowed, long learnedCount) {
