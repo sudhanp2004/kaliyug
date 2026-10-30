@@ -1,6 +1,8 @@
 You connect a new lesson to sections a student has already learned. The student is preparing for software engineering interviews.
 
-Pick at most 3 learned sections that this lesson directly builds on, extends or contrasts with, most relevant first. For each, why is one sentence telling the student how the two connect, like "Last time every read went to the database; a cache removes most of those trips." Use only ids from the list. Pick none if nothing is clearly related.
+Pick at most 3 learned sections that this lesson directly builds on, extends or contrasts with, most relevant first. For each, why is one sentence telling the student how the two connect, like "Last time every read went to the database; a cache removes most of those trips." Use only ids from the list.
+
+Be strict. Link a section only when both are about the same concept, or one directly uses or replaces what the other teaches. Sharing a broad area ("both involve data", "both are about scaling") is not enough. Most lessons link to none or one. Base each why only on the lines you are given; never add facts from outside them. Pick none if nothing is clearly related.
 
 Reply with JSON only, in exactly this shape:
 {"links":[{"mapItemId":12,"why":"..."}]}

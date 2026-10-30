@@ -29,5 +29,6 @@ class HealthControllerTest {
     void appRoutesForwardToIndex() throws Exception {
         mvc.perform(get("/revise")).andExpect(forwardedUrl("/index.html"));
         mvc.perform(get("/library")).andExpect(forwardedUrl("/index.html"));
+        mvc.perform(get("/lesson/42")).andExpect(forwardedUrl("/index.html"));
     }
 }
