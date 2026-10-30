@@ -14,5 +14,7 @@ public interface MapItemRepository extends JpaRepository<MapItem, Long> {
 
     long countByLearnedAtIsNotNull();
 
+    List<MapItem> findByLearnedAtIsNotNullAndHiddenFalseOrderByLearnedAtDesc();
+
     long countByChapterResourceIdAndIngestedTrue(Long resourceId);
 }
