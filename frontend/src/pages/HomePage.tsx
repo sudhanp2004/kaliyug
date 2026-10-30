@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getProgress, getQueue, hideItem, markLearned, skipItem, type Progress, type Queue } from '../api'
+import { getProgress, getQueue, hideItem, prepareUpcoming, skipItem, type Progress, type Queue } from '../api'
 import ProgressBar from '../components/ProgressBar'
 import QueueList from '../components/QueueList'
 
@@ -22,7 +22,8 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    void refresh()
+    // Lessons for the top of Up next get written in the background, so opening one doesn't wait.
+    void refresh().then(() => prepareUpcoming().catch(() => {}))
   }, [refresh])
 
   async function act(id: number, action: (id: number) => Promise<void>) {
@@ -42,6 +43,7 @@ export default function HomePage() {
   }
 
   const { wins } = progress
+  const masteredBooks = progress.books.filter((b) => b.mastered).map((b) => b.title)
   const noBooks = progress.books.length === 0
 
   return (
@@ -59,8 +61,9 @@ export default function HomePage() {
               <strong>{b.title}:</strong> {b.failureReason}
             </p>
           ))}
-        {(wins.weakPointsFixedThisWeek > 0 || wins.solidChapters.length > 0) && (
+        {(wins.weakPointsFixedThisWeek > 0 || wins.solidChapters.length > 0 || masteredBooks.length > 0) && (
           <div className="wins">
+            {masteredBooks.length > 0 && <div>Mastered: {masteredBooks.join(', ')}</div>}
             {wins.weakPointsFixedThisWeek > 0 && <div>{wins.weakPointsFixedThisWeek} weak points fixed this week</div>}
             {wins.solidChapters.length > 0 && <div>Solid: {wins.solidChapters.join(', ')}</div>}
           </div>
@@ -82,7 +85,6 @@ export default function HomePage() {
               <QueueList
                 items={queue.items}
                 busyId={busyId}
-                onLearned={(id) => act(id, markLearned)}
                 onSkip={(id) => act(id, skipItem)}
                 onRemove={(id) => act(id, hideItem)}
               />

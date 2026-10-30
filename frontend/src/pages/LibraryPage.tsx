@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
 import {
   getAvailable,
   getHidden,
+  getProgress,
   getResources,
   importBook,
   pagesLabel,
@@ -26,15 +27,18 @@ export default function LibraryPage() {
   const [books, setBooks] = useState<ResourceInfo[] | null>(null)
   const [available, setAvailable] = useState<string[]>([])
   const [hidden, setHidden] = useState<QueueItem[]>([])
+  const [mastered, setMastered] = useState<number[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [b, a, h] = await Promise.all([getResources(), getAvailable(), getHidden()])
+      // Progress only adds the Mastered pill; the Library still works without it.
+      const [b, a, h, p] = await Promise.all([getResources(), getAvailable(), getHidden(), getProgress().catch(() => null)])
       setBooks(b)
       setAvailable(a)
       setHidden(h)
+      if (p) setMastered(p.books.filter((bb) => bb.mastered).map((bb) => bb.resourceId))
     } catch (e) {
       setError((e as Error).message)
     }
@@ -86,7 +90,10 @@ export default function LibraryPage() {
             {books.map((b) => (
               <div key={b.id} className="book-row">
                 <div>
-                  <div style={{ fontWeight: 600 }}>{b.title}</div>
+                  <div style={{ fontWeight: 600 }}>
+                    {b.title}
+                    {mastered.includes(b.id) && <span className="pill">Mastered</span>}
+                  </div>
                   {b.status === 'FAILED' && <div className="small status-FAILED">{b.failureReason}</div>}
                 </div>
                 <div className="row">

@@ -19,6 +19,26 @@ const ready = {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('LibraryPage', () => {
+  it('masteredBookShowsPill', async () => {
+    mockFetch([
+      { path: '/api/resources', body: [ready] },
+      { path: '/api/resources/available', body: [] },
+      { path: '/api/map-items/hidden', body: [] },
+      {
+        path: '/api/progress',
+        body: {
+          overall: { knownWell: 4, total: 4, percent: 100 },
+          books: [{ resourceId: 1, title: ready.title, status: 'READY', failureReason: null, bar: { knownWell: 4, total: 4, percent: 100 }, mastered: true }],
+          wins: { weakPointsFixedThisWeek: 0, solidChapters: [] },
+          dueCount: 0,
+          preparing: false,
+        },
+      },
+    ])
+    render(<LibraryPage />)
+    expect(await screen.findByText('Mastered')).toBeInTheDocument()
+  })
+
   it('listsAvailableAndAdds', async () => {
     const api = mockFetch([
       { path: '/api/resources', body: [] },

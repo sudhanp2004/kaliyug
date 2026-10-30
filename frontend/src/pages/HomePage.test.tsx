@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +14,7 @@ const progress = {
       status: 'READY',
       failureReason: null,
       bar: { knownWell: 2, total: 4, percent: 50 },
+      mastered: false,
     },
   ],
   wins: { weakPointsFixedThisWeek: 6, solidChapters: ['CHAPTER 1: SCALE FROM ZERO TO MILLIONS OF USERS'] },
@@ -53,24 +54,20 @@ describe('HomePage', () => {
     expect(screen.getByRole('link', { name: 'Revise (3 due)' })).toHaveAttribute('href', '/revise')
     expect(screen.getByText('6 weak points fixed this week')).toBeInTheDocument()
     expect(screen.getByText('pp. 119–124')).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Learned it' })).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'Start lesson' })).toHaveAttribute('href', '/lesson/7')
+    expect(screen.queryByRole('button', { name: 'Learned it' })).not.toBeInTheDocument()
   })
 
-  it('learnedItRefetches', async () => {
+  it('preparesUpcomingLessonsAndShowsMastered', async () => {
     const api = mockFetch([
-      { path: '/api/progress', body: progress },
-      { path: '/api/queue', body: { items: [item(7, 'Base62 conversion', 119, 124), item(8, 'Hash collisions', 125, 131)], remaining: 2, preparing: false } },
-      { method: 'POST', path: '/api/map-items/7/learned', status: 204 },
+      { path: '/api/progress', body: { ...progress, books: [{ ...progress.books[0], mastered: true }] } },
+      { path: '/api/queue', body: { items: [item(7, 'Base62 conversion', 119, 124)], remaining: 1, preparing: false, skipped: 0, allPaused: false } },
+      { method: 'POST', path: '/api/lessons/prepare-upcoming', status: 204 },
     ])
     renderHome()
-    const button = await screen.findByRole('button', { name: 'Learned it' })
-    api.add({ path: '/api/queue', body: { items: [item(8, 'Hash collisions', 125, 131)], remaining: 1, preparing: false } })
-
-    await userEvent.click(button)
-
-    expect(api.calls.some((c) => c.method === 'POST' && c.url === '/api/map-items/7/learned')).toBe(true)
-    expect(await screen.findByText('pp. 125–131')).toBeInTheDocument()
-    expect(screen.queryByText('Base62 conversion')).not.toBeInTheDocument()
+    expect(await screen.findByText('Mastered: System Design Interview')).toBeInTheDocument()
+    await waitFor(() => expect(api.calls.some((c) => c.url === '/api/lessons/prepare-upcoming')).toBe(true))
+    expect(screen.getByRole('link', { name: 'Base62 conversion' })).toHaveAttribute('href', '/lesson/7')
   })
 
   it('emptyLibraryPromptsToAddBook', async () => {
