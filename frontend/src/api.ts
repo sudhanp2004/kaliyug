@@ -11,6 +11,8 @@ export type BookBar = {
   status: ResourceStatus
   failureReason: string | null
   bar: Bar
+  /** Has counted points and every one is known well. */
+  mastered: boolean
 }
 export type Progress = {
   overall: Bar
@@ -78,6 +80,35 @@ export type PointResult = {
   attemptId: number
 }
 export type DesignResult = { feedback: string; differences: string; points: PointResult[] }
+
+export type LessonStatus = 'PREPARING' | 'READY' | 'FAILED'
+export type LessonPart = { text: string; firstPage: number; lastPage: number }
+export type RememberItem = LessonPart & { evidence: string }
+export type LessonBlock = { idea: LessonPart; howItWorks: LessonPart; remember: RememberItem[] }
+export type LessonLink = { mapItemId: number; title: string; bookTitle: string; why: string }
+export type MiniDesign = { task: string; requirements: string[] }
+export type Lesson = {
+  mapItemId: number
+  status: LessonStatus
+  failureReason: string | null
+  sectionTitle: string
+  bookTitle: string
+  chapterTitle: string
+  startPage: number
+  endPage: number
+  learned: boolean
+  /** null until the lesson is READY. */
+  estimatedMinutes: number | null
+  blocks: LessonBlock[]
+  diagrams: string[]
+  leftOut: string
+  youtubeUrl: string | null
+  buildsOn: LessonLink[]
+  quickCheck: QuestionView[]
+  miniDesign: MiniDesign | null
+  /** Points the coverage check added to an already learned section. */
+  newPointsFound: number
+}
 
 export type ResourceInfo = {
   id: number
@@ -152,6 +183,13 @@ export const flagQuestion = (questionId: number) => post<void>(`/api/questions/$
 export const getProblem = (id: number) => get<Problem>(`/api/problems/${id}`)
 export const submitDesign = (id: number, submission: DesignSubmission) =>
   post<DesignResult>(`/api/problems/${id}/submit`, submission)
+
+export const openLesson = (id: number) => post<Lesson>(`/api/map-items/${id}/lesson/open`)
+export const getLesson = (id: number) => get<Lesson>(`/api/map-items/${id}/lesson`)
+export const rewriteLesson = (id: number) => post<Lesson>(`/api/map-items/${id}/lesson/rewrite`)
+export const submitLessonDesign = (id: number, submission: DesignSubmission) =>
+  post<DesignResult>(`/api/map-items/${id}/lesson/design`, submission)
+export const prepareUpcoming = () => post<void>('/api/lessons/prepare-upcoming')
 
 export const getResources = () => get<ResourceInfo[]>('/api/resources')
 export const getAvailable = () => get<string[]>('/api/resources/available')
