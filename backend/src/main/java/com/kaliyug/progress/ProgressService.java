@@ -37,7 +37,9 @@ public class ProgressService {
         }
     }
 
-    public record BookBar(Long resourceId, String title, ResourceStatus status, String failureReason, Bar bar) {
+    /** mastered: the book has counted points and every one is known well. */
+    public record BookBar(Long resourceId, String title, ResourceStatus status, String failureReason, Bar bar,
+            boolean mastered) {
     }
 
     public record Wins(long weakPointsFixedThisWeek, List<String> solidChapters) {
@@ -71,7 +73,8 @@ public class ProgressService {
         List<BookBar> books = new ArrayList<>();
         for (Resource r : resources.findAll()) {
             long[] t = perBook.getOrDefault(r.getId(), new long[2]);
-            books.add(new BookBar(r.getId(), r.getTitle(), r.getStatus(), r.getFailureReason(), Bar.of(t[0], t[1])));
+            books.add(new BookBar(r.getId(), r.getTitle(), r.getStatus(), r.getFailureReason(), Bar.of(t[0], t[1]),
+                    t[1] > 0 && t[0] == t[1]));
         }
 
         List<String> solid = perChapter.entrySet().stream()

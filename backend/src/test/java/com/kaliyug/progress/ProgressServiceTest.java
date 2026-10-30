@@ -113,4 +113,20 @@ class ProgressServiceTest {
         assertEquals(0, progress.progress().dueCount());
         assertEquals(4, progress.progress().overall().total(), "paused books still count towards progress");
     }
+
+    @Test
+    void bookIsMasteredOnlyWhenEveryCountedPointIsKnownWell() {
+        MapItem ia = fx.item(fx.chapter(fx.book("A"), 1, "A1", ChapterKind.CONCEPT), 0, "a");
+        known(fx.point(ia, PointKind.FACT, "a1"), true);
+        known(fx.point(ia, PointKind.FACT, "a2"), true);
+        MapItem ib = fx.item(fx.chapter(fx.book("B"), 1, "B1", ChapterKind.CONCEPT), 0, "b");
+        known(fx.point(ib, PointKind.FACT, "b1"), true);
+        known(fx.point(ib, PointKind.FACT, "b2"), false);
+        fx.book("C");
+        java.util.Map<String, Boolean> mastered = new java.util.HashMap<>();
+        progress.progress().books().stream()
+                .filter(bb -> List.of("A", "B", "C").contains(bb.title()))
+                .forEach(bb -> mastered.put(bb.title(), bb.mastered()));
+        assertEquals(java.util.Map.of("A", true, "B", false, "C", false), mastered);
+    }
 }
