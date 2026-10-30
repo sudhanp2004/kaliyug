@@ -35,6 +35,13 @@ import com.kaliyug.domain.Question;
 import com.kaliyug.domain.QuestionRepository;
 import com.kaliyug.lesson.LessonContracts.Block;
 import com.kaliyug.lesson.LessonContracts.LessonContent;
+import com.kaliyug.lesson.LessonContracts.LinkChoice;
+import com.kaliyug.lesson.LessonContracts.Links;
+import com.kaliyug.lesson.LessonContracts.LinksReply;
+import com.kaliyug.llm.JsonLlm;
+import com.kaliyug.llm.LlmUnavailableException;
+import com.kaliyug.llm.Prompts;
+import com.kaliyug.ingest.IngestionService;
 import com.kaliyug.map.QueueService;
 import com.kaliyug.map.QueueService.QueueItemDto;
 import com.kaliyug.revision.RevisionService.QuestionView;
@@ -46,6 +53,8 @@ public class LessonService {
     static final int PREPARE_AHEAD = 2;
     static final int QUICK_CHECK = 3;
     static final int MINI_DESIGN_MINUTES = 3;
+    static final int MAX_LINKS = 3;
+    private static final int KEY_POINT_CHARS = 100;
     static final String NOT_IN_SYLLABUS = "This section isn't in your syllabus.";
     static final String SOMETHING_WRONG = "Something went wrong while preparing this lesson.";
     private static final String YOUTUBE_SEARCH = "https://www.youtube.com/results?search_query=";
@@ -69,6 +78,8 @@ public class LessonService {
     private final QuestionRepository questions;
     private final QueueService queue;
     private final LessonGenerator generator;
+    private final JsonLlm ai;
+    private final Prompts prompts;
     private final ObjectMapper mapper;
     private final TransactionTemplate tx;
     private final Clock clock;
@@ -76,7 +87,7 @@ public class LessonService {
     private Executor executor;
 
     public LessonService(MapItemRepository mapItems, LessonRepository lessons, PointRepository points,
-            QuestionRepository questions, QueueService queue, LessonGenerator generator, ObjectMapper mapper,
+            QuestionRepository questions, QueueService queue, LessonGenerator generator, JsonLlm ai, Prompts prompts, ObjectMapper mapper,
             TransactionTemplate tx, Clock clock, @Qualifier("lessonExecutor") Executor lessonExecutor) {
         this.mapItems = mapItems;
         this.lessons = lessons;
@@ -84,6 +95,8 @@ public class LessonService {
         this.questions = questions;
         this.queue = queue;
         this.generator = generator;
+        this.ai = ai;
+        this.prompts = prompts;
         this.mapper = mapper;
         this.tx = tx;
         this.clock = clock;
@@ -131,6 +144,7 @@ public class LessonService {
     }
 
     public LessonDto view(Long mapItemId) {
+        refreshLinksIfStale(mapItemId);
         return tx.execute(s -> {
             MapItem item = visibleItem(mapItemId);
             Lesson lesson = lessons.findByMapItemId(mapItemId)
@@ -230,9 +244,85 @@ public class LessonService {
                 lesson.getNewPointsFound());
     }
 
-    /** Filled in by the "Builds on" step. */
+    private record LinksRequest(String user, Set<Long> allowed, long learnedCount) {
+    }
+
+    /** Re-picks "Builds on" when more sections have been learned since the links were chosen. AI call outside a transaction. */
+    private void refreshLinksIfStale(Long mapItemId) {
+        LinksRequest request = tx.execute(s -> {
+            Lesson lesson = lessons.findByMapItemId(mapItemId).orElse(null);
+            long learnedCount = mapItems.countByLearnedAtIsNotNull();
+            if (lesson == null || lesson.getStatus() != LessonStatus.READY || lesson.getContentJson() == null
+                    || Long.valueOf(learnedCount).equals(lesson.getLinksAtLearnedCount())) {
+                return null;
+            }
+            List<MapItem> candidates = mapItems.findByLearnedAtIsNotNullAndHiddenFalseOrderByLearnedAtDesc().stream()
+                    .filter(m -> !m.getId().equals(mapItemId))
+                    .toList();
+            if (candidates.isEmpty()) {
+                storeLinks(lesson, List.of(), learnedCount);
+                return null;
+            }
+            LessonContent content = mapper.readValue(lesson.getContentJson(), LessonContent.class);
+            String idea = content.blocks().isEmpty() || content.blocks().get(0).idea() == null ? ""
+                    : content.blocks().get(0).idea().text();
+            StringBuilder user = new StringBuilder("This lesson: " + lesson.getMapItem().getTitle() + " — " + idea + "\n\n"
+                    + "Learned sections (id | book | chapter | section | key point):\n");
+            Set<Long> allowed = new LinkedHashSet<>();
+            for (MapItem m : candidates) {
+                String keyPoint = points.findByMapItemId(m.getId()).stream()
+                        .min(Comparator.comparing(Point::getId))
+                        .map(p -> p.getText().length() > KEY_POINT_CHARS ? p.getText().substring(0, KEY_POINT_CHARS) : p.getText())
+                        .orElse("");
+                String line = m.getId() + " | " + m.getChapter().getResource().getTitle() + " | " + m.getChapter().getTitle()
+                        + " | " + m.getTitle() + " | " + keyPoint + "\n";
+                if (user.length() + line.length() > IngestionService.DEFAULT_MAX_INPUT_CHARS) {
+                    break;
+                }
+                user.append(line);
+                allowed.add(m.getId());
+            }
+            return new LinksRequest(user.toString(), allowed, learnedCount);
+        });
+        if (request == null) {
+            return;
+        }
+        LinksReply reply;
+        try {
+            reply = ai.ask(prompts.get("lesson-links"), request.user(), LinksReply.class);
+        } catch (LlmUnavailableException e) {
+            log.warn("Couldn't pick links for section {}: {}", mapItemId, e.getMessage());
+            return;
+        }
+        List<LinkChoice> chosen = (reply == null || reply.links() == null ? List.<LinkChoice>of() : reply.links()).stream()
+                .filter(c -> c != null && c.mapItemId() != null && request.allowed().contains(c.mapItemId())
+                        && c.why() != null && !c.why().isBlank())
+                .map(c -> new LinkChoice(c.mapItemId(), c.why().trim()))
+                .distinct()
+                .limit(MAX_LINKS)
+                .toList();
+        tx.executeWithoutResult(s -> lessons.findByMapItemId(mapItemId)
+                .ifPresent(l -> storeLinks(l, chosen, request.learnedCount())));
+    }
+
+    private void storeLinks(Lesson lesson, List<LinkChoice> links, long learnedCount) {
+        lesson.setLinksJson(mapper.writeValueAsString(new Links(links)));
+        lesson.setLinksAtLearnedCount(learnedCount);
+    }
+
+    /** Stored links, minus sections since removed or no longer learned. */
     private List<LinkDto> buildsOn(Lesson lesson) {
-        return List.of();
+        if (lesson.getLinksJson() == null) {
+            return List.of();
+        }
+        Links links = mapper.readValue(lesson.getLinksJson(), Links.class);
+        List<LinkDto> out = new ArrayList<>();
+        for (LinkChoice c : links.links() == null ? List.<LinkChoice>of() : links.links()) {
+            mapItems.findById(c.mapItemId())
+                    .filter(m -> !m.isHidden() && m.isLearned())
+                    .ifPresent(m -> out.add(new LinkDto(m.getId(), m.getTitle(), m.getChapter().getResource().getTitle(), c.why())));
+        }
+        return out;
     }
 
     private List<QuestionView> quickCheck(MapItem item, LessonContent content, String bookTitle, String chapterTitle) {
