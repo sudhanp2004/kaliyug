@@ -179,8 +179,11 @@ public class QueueService {
         Instant now = clock.instant();
         item.setLearnedAt(now);
         item.setSkippedAtLearnedCount(null);
+        // Points already answered (in the lesson's quick check) keep the schedule their answer gave them.
         for (Point p : points.findByMapItemId(itemId)) {
-            scheduler.onLearned(p);
+            if (p.getDueAt() == null) {
+                scheduler.onLearned(p);
+            }
         }
         scheduleProblemIfChapterDone(item.getChapter().getId());
     }

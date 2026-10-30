@@ -13,6 +13,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import com.kaliyug.domain.Chapter;
 import com.kaliyug.domain.ChapterKind;
 import com.kaliyug.domain.MapItem;
+import com.kaliyug.domain.Point;
+import com.kaliyug.domain.PointKind;
+import com.kaliyug.domain.PointRepository;
 import com.kaliyug.domain.Resource;
 import com.kaliyug.domain.ResourceRepository;
 import com.kaliyug.domain.ResourceStatus;
@@ -22,6 +25,7 @@ import com.kaliyug.support.Db;
 import com.kaliyug.support.Fixtures;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest
@@ -32,6 +36,7 @@ class QueueServiceTest {
     @Autowired Fixtures fx;
     @Autowired ResourceRepository resources;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PointRepository points;
 
     private Resource bookA;
     private MapItem a1;
@@ -198,5 +203,20 @@ class QueueServiceTest {
         queue.markLearned(a1.getId());
 
         assertEquals(0, queue.queue(20).skipped());
+    }
+
+    @Test
+    void markLearnedKeepsScheduleOfPointsAnsweredBeforehand() {
+        Point answered = fx.point(a1, PointKind.CONCEPT, "answered");
+        answered.setBox(1);
+        answered.setDueAt(Instant.parse("2026-12-01T00:00:00Z"));
+        answered.setKnownWell(true);
+        fx.save(answered);
+        Point fresh = fx.point(a1, PointKind.CONCEPT, "fresh");
+        queue.markLearned(a1.getId());
+        Point a = points.findById(answered.getId()).orElseThrow();
+        assertEquals(1, a.getBox());
+        assertEquals(Instant.parse("2026-12-01T00:00:00Z"), a.getDueAt());
+        assertNotNull(points.findById(fresh.getId()).orElseThrow().getDueAt());
     }
 }
