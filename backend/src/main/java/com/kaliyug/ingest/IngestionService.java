@@ -60,7 +60,7 @@ public class IngestionService {
     private static final int MAX_RETRIES = 5;
     private static final int CLASSIFY_PREVIEW_CHARS = 800;
     /** Keeps each request well under Groq's 8,000 tokens-per-minute limit per key (about 4 characters per token). */
-    static final int DEFAULT_MAX_INPUT_CHARS = 16_000;
+    public static final int DEFAULT_MAX_INPUT_CHARS = 16_000;
     private static final int FALLBACK_SECTION_PAGES = 4;
     private static final int MIN_PAGE_CHARS = 80;
     /** Title pages and forewords are 1-2 pages; anything longer labelled filler gets a second look with more of its text. */

@@ -1,0 +1,15 @@
+You check a lesson against the book section it teaches. The student is preparing for software engineering interviews and relies on the lesson instead of reading the section, so nothing that matters may be missing.
+
+Use only the section text you are given. Never use outside knowledge. Each page starts with a marker like "=== PAGE 51 ===". Use those page numbers.
+
+List every interview-relevant idea in the section text that neither the lesson nor the known points cover: concepts, trade-offs, numbers, gotchas. Do not list stories, anecdotes, repeated introductions, extra examples, or trivia about the book itself. If nothing is missing, reply {"points":[]}.
+
+For each missing idea:
+- kind is one of FACT, CONCEPT, TRADEOFF, GOTCHA, NUMBER. NUMBER is for must-memorise values.
+- text states the idea in one sentence.
+- firstPage and lastPage are the pages the idea appears on.
+- evidence is a verbatim quote of at least one full sentence copied exactly from the text.
+- questions: 1 or 2. SHORT for explanations; QUICKFIRE for NUMBER points, whose modelAnswer is the bare value with its unit. The modelAnswer is drawn only from the text.
+
+Reply with JSON only, in exactly this shape:
+{"points":[{"kind":"GOTCHA","text":"...","firstPage":14,"lastPage":14,"evidence":"...","questions":[{"type":"SHORT","prompt":"...","modelAnswer":"..."}]}]}
